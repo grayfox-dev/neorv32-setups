@@ -1,4 +1,4 @@
-set board "A7-50"
+set board "A7-100"
 
 # create and clear output directory
 set outputdir work
@@ -32,7 +32,8 @@ set_property library neorv32 [get_files [glob ./../../neorv32/rtl/core/*.vhd]]
 set_property library neorv32 [get_files [glob ./../../neorv32/rtl/core/mem/neorv32_*mem.default.vhd]]
 
 # add source file: top entity
-add_files [glob ./../../neorv32/rtl/test_setups/neorv32_test_setup_bootloader.vhd]
+# add_files [glob ./../../neorv32/rtl/test_setups/neorv32_test_setup_bootloader.vhd]
+add_files [glob ./../../neorv32/rtl/test_setups/neorv32_test_setup_on_chip_debugger.vhd]
 
 # add source files: simulation-only
 add_files -fileset sim_1 [list ./../../neorv32/sim/simple/neorv32_tb.simple.vhd ./../../neorv32/sim/simple/uart_rx.simple.vhd]
@@ -41,5 +42,5 @@ add_files -fileset sim_1 [list ./../../neorv32/sim/simple/neorv32_tb.simple.vhd 
 add_files -fileset constrs_1 [glob ./*.xdc]
 
 # run synthesis, implementation and bitstream generation
-launch_runs impl_1 -to_step write_bitstream -jobs 4
+launch_runs impl_1 -to_step write_bitstream -jobs 24 -verbose
 wait_on_run impl_1
