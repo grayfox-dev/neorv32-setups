@@ -1,0 +1,5438 @@
+From 26cd93887f63204fd8addacc22e12da37ffc1f13 Mon Sep 17 00:00:00 2001
+From: grayfox <null@grayfox.dev>
+Date: Mon, 29 Apr 2024 00:15:43 -0400
+Subject: [PATCH] Source file commits for Final Project state.
+
+See demo_zfinx3_cpp directory for custom Zfinx::Fp32 class and test routine
+---
+ .../neorv32_test_setup_on_chip_debugger.vhd   |    7 +-
+ sw/common/common.mk                           |    5 +-
+ sw/example/demo_zfinx2_cpp/Makefile           |    4 +
+ sw/example/demo_zfinx2_cpp/main.cpp           |   93 ++
+ .../neorv32_zfinx_extension_intrinsics.h      | 1086 +++++++++++++++++
+ sw/example/demo_zfinx2_cpp/taylor.hpp         |   37 +
+ sw/example/demo_zfinx2_cpp/zfinx.hpp          |  184 +++
+ sw/example/demo_zfinx3_cpp/Makefile           |    4 +
+ sw/example/demo_zfinx3_cpp/gdb_commands       |    6 +
+ sw/example/demo_zfinx3_cpp/main.cpp           |  128 ++
+ .../neorv32_zfinx_extension_intrinsics.h      | 1086 +++++++++++++++++
+ sw/example/demo_zfinx3_cpp/taylor.hpp         |   53 +
+ sw/example/demo_zfinx3_cpp/zfinx.hpp          |  181 +++
+ sw/example/demo_zfinx_cpp/Makefile            |    4 +
+ sw/example/demo_zfinx_cpp/main.cpp            | 1057 ++++++++++++++++
+ .../neorv32_zfinx_extension_intrinsics.h      | 1086 +++++++++++++++++
+ .../newton_raphson_recip_example              |   43 +
+ sw/example/demo_zfinx_cpp/zfinx.hpp           |  134 ++
+ sw/example/hello_cpp/gdb_commands             |    4 +
+ sw/openocd/openocd_neorv32.cfg                |   22 +-
+ 20 files changed, 5214 insertions(+), 10 deletions(-)
+ create mode 100644 sw/example/demo_zfinx2_cpp/Makefile
+ create mode 100644 sw/example/demo_zfinx2_cpp/main.cpp
+ create mode 100644 sw/example/demo_zfinx2_cpp/neorv32_zfinx_extension_intrinsics.h
+ create mode 100644 sw/example/demo_zfinx2_cpp/taylor.hpp
+ create mode 100644 sw/example/demo_zfinx2_cpp/zfinx.hpp
+ create mode 100644 sw/example/demo_zfinx3_cpp/Makefile
+ create mode 100644 sw/example/demo_zfinx3_cpp/gdb_commands
+ create mode 100644 sw/example/demo_zfinx3_cpp/main.cpp
+ create mode 100644 sw/example/demo_zfinx3_cpp/neorv32_zfinx_extension_intrinsics.h
+ create mode 100644 sw/example/demo_zfinx3_cpp/taylor.hpp
+ create mode 100644 sw/example/demo_zfinx3_cpp/zfinx.hpp
+ create mode 100644 sw/example/demo_zfinx_cpp/Makefile
+ create mode 100644 sw/example/demo_zfinx_cpp/main.cpp
+ create mode 100644 sw/example/demo_zfinx_cpp/neorv32_zfinx_extension_intrinsics.h
+ create mode 100644 sw/example/demo_zfinx_cpp/newton_raphson_recip_example
+ create mode 100644 sw/example/demo_zfinx_cpp/zfinx.hpp
+ create mode 100644 sw/example/hello_cpp/gdb_commands
+
+diff --git a/rtl/test_setups/neorv32_test_setup_on_chip_debugger.vhd b/rtl/test_setups/neorv32_test_setup_on_chip_debugger.vhd
+index 2202d584..45e0ae1c 100644
+--- a/rtl/test_setups/neorv32_test_setup_on_chip_debugger.vhd
++++ b/rtl/test_setups/neorv32_test_setup_on_chip_debugger.vhd
+@@ -43,8 +43,10 @@ entity neorv32_test_on_chip_debugger is
+   generic (
+     -- adapt these for your setup --
+     CLOCK_FREQUENCY   : natural := 100000000; -- clock frequency of clk_i in Hz
+-    MEM_INT_IMEM_SIZE : natural := 16*1024;   -- size of processor-internal instruction memory in bytes
+-    MEM_INT_DMEM_SIZE : natural := 8*1024     -- size of processor-internal data memory in bytes
++  --MEM_INT_IMEM_SIZE : natural := 16*1024;   -- size of processor-internal instruction memory in bytes
++  --MEM_INT_DMEM_SIZE : natural := 8*1024     -- size of processor-internal data memory in bytes
++    MEM_INT_IMEM_SIZE : natural := 64*1024;   -- size of processor-internal instruction memory in bytes
++    MEM_INT_DMEM_SIZE : natural := 64*1024    -- size of processor-internal data memory in bytes
+   );
+   port (
+     -- Global control --
+@@ -84,6 +86,7 @@ begin
+     CPU_EXTENSION_RISCV_M      => true,              -- implement mul/div extension?
+     CPU_EXTENSION_RISCV_U      => true,              -- implement user mode extension?
+     CPU_EXTENSION_RISCV_Zicntr => true,              -- implement base counters?
++    CPU_EXTENSION_RISCV_Zfinx  => true,              -- implement 32-bit floating-point extension (using INT reg!)
+     -- Internal Instruction memory --
+     MEM_INT_IMEM_EN            => true,              -- implement processor-internal instruction memory
+     MEM_INT_IMEM_SIZE          => MEM_INT_IMEM_SIZE, -- size of processor-internal instruction memory in bytes
+diff --git a/sw/common/common.mk b/sw/common/common.mk
+index 55b8161b..4520cda9 100644
+--- a/sw/common/common.mk
++++ b/sw/common/common.mk
+@@ -119,6 +119,7 @@ OBJ = $(SRC:%=%.o)
+ # -----------------------------------------------------------------------------
+ # Compiler tools
+ CC      = $(RISCV_PREFIX)gcc
++CXX     = $(RISCV_PREFIX)g++
+ OBJDUMP = $(RISCV_PREFIX)objdump
+ OBJCOPY = $(RISCV_PREFIX)objcopy
+ SIZE    = $(RISCV_PREFIX)size
+@@ -134,6 +135,7 @@ IMAGE_GEN = $(NEORV32_EXG_PATH)/image_gen
+ CC_OPTS  = -march=$(MARCH) -mabi=$(MABI) $(EFFORT) -Wall -ffunction-sections -fdata-sections -nostartfiles -mno-fdiv
+ CC_OPTS += -mstrict-align -mbranch-cost=10 -g -Wl,--gc-sections
+ CC_OPTS += $(USER_FLAGS)
++CXX_OPTS = -std=c++20
+ LD_LIBS =  -lm -lc -lgcc
+ LD_LIBS += $(USER_LIBS)
+ 
+@@ -194,7 +196,8 @@ $(IMAGE_GEN): $(NEORV32_EXG_PATH)/image_gen.c
+ 
+ # Compile app *.cpp sources
+ %.cpp.o: %.cpp
+-	@$(CC) -c $(CC_FLAGS) -I $(NEORV32_INC_PATH) $(APP_INC) $< -o $@
++#@$(CC) -c $(CC_FLAGS) -I $(NEORV32_INC_PATH) $(APP_INC) $< -o $@
++	@$(CXX) -c $(CC_FLAGS) $(CXX_FLAGS) -I $(NEORV32_INC_PATH) $(APP_INC) $< -o $@
+ 
+ # Link object files and show memory utilization
+ $(APP_ELF): $(OBJ)
+diff --git a/sw/example/demo_zfinx2_cpp/Makefile b/sw/example/demo_zfinx2_cpp/Makefile
+new file mode 100644
+index 00000000..8f9e2fdc
+--- /dev/null
++++ b/sw/example/demo_zfinx2_cpp/Makefile
+@@ -0,0 +1,4 @@
++# Modify this variable to fit your NEORV32 setup (neorv32 home folder)
++NEORV32_HOME ?= ../../..
++
++include $(NEORV32_HOME)/sw/common/common.mk
+diff --git a/sw/example/demo_zfinx2_cpp/main.cpp b/sw/example/demo_zfinx2_cpp/main.cpp
+new file mode 100644
+index 00000000..975f3ead
+--- /dev/null
++++ b/sw/example/demo_zfinx2_cpp/main.cpp
+@@ -0,0 +1,93 @@
++#include <charconv>
++#include <cstdint>
++#include <numeric>
++#include <array>
++#include <execution>
++#include <numbers>
++
++#include "zfinx.hpp"
++#include "taylor.hpp"
++
++#define BAUD_RATE          (19200)
++using Fp32 = zfinx::Fp32;
++
++// Naive printing routine because sprintf is HUGE and fcvt is deprecated
++void floatprint(auto const& value, int digits = 6){
++    // Print integer portion
++    auto temp = value;
++    neorv32_uart0_printf("%d.", (int32_t) temp);
++
++    // Subtract integer portion
++    temp -= (int32_t) temp;
++
++    // Print requested digits
++    for (int i = 0; i < digits; ++i) {
++        temp *= 10;
++        neorv32_uart0_printf("%d", (int32_t) truncf(temp));
++    }
++}
++
++int main() {
++    // setup UART at default baud rate, no interrupts
++    neorv32_uart0_setup(BAUD_RATE, 0);
++
++    // capture all exceptions and give debug info via UART
++    neorv32_rte_setup();
++
++
++    // check if Zfinx extension is implemented at all
++    if ((neorv32_cpu_csr_read(CSR_MXISA) & (1<<CSR_MXISA_ZFINX)) == 0) {
++        neorv32_uart0_puts("Error! <Zfinx> extension not synthesized!\n");
++        return 1;
++    }
++
++    // ----------------------------------------------------------------------------
++    // Initialize FPU hardware
++    // ----------------------------------------------------------------------------
++    neorv32_cpu_csr_write(CSR_FCSR, 0); // clear exception flags and set "round to nearest"
++
++    neorv32_uart0_puts("Alright let's get this!\n");
++//  const Fp32 pi = 3.14159265358979323846f;
++    const Fp32 pi = std::numbers::pi_v<float>;
++    constexpr int intervals = 1000; // Number of intervals for the range
++
++    neorv32_uart0_puts("Defining range...\n");
++    // Define the range of x values from 0 to 2*pi
++    const Fp32 lower_bound = 0.0f;
++    const Fp32 upper_bound = pi;
++    const Fp32 interval_size = (upper_bound - lower_bound) / intervals;
++
++    neorv32_uart0_puts("Creating lambda...\n");
++    // Function to compute the integral of sin(x) over an interval
++    auto approx_function = [&](Fp32 x) {
++        return Taylor::sin_series(x,  7);
++    };
++
++    neorv32_uart0_puts("Creating range...\n");
++    // Create a range of x values
++    std::array<Fp32, intervals> x_values;
++    std::iota(std::begin(x_values), std::end(x_values), 0); // Fill with integers from 0 to intervals-1
++    std::transform(std::begin(x_values), std::end(x_values), std::begin(x_values), [&](Fp32 index) {
++        return lower_bound + index * interval_size; // Map the integers to x values
++    });
++
++    neorv32_uart0_puts("Computing integral...\n");
++    // Compute the integral over the entire range using transform_reduce
++    Fp32 total_integral = std::transform_reduce(
++        std::execution::par_unseq, // or std::execution::seq for sequential execution
++        std::begin(x_values), std::end(x_values), // Range of x values
++        Fp32(), // Initial value for the reduction
++        std::plus<>(), // Binary operation (sum)
++        approx_function // Transformation function
++    );
++
++    // Scale the result by the interval size
++    total_integral *= interval_size;
++
++    neorv32_uart0_printf("Integral of sin(x) from 0 to pi ≈ 0x%x\n", static_cast<float>(total_integral));
++    neorv32_uart0_printf("Minimal/Naive float-to-string: ");
++    floatprint(total_integral);
++    neorv32_uart0_printf("\n");
++
++    return 0;
++}
+diff --git a/sw/example/demo_zfinx2_cpp/neorv32_zfinx_extension_intrinsics.h b/sw/example/demo_zfinx2_cpp/neorv32_zfinx_extension_intrinsics.h
+new file mode 100644
+index 00000000..fed46e0a
+--- /dev/null
++++ b/sw/example/demo_zfinx2_cpp/neorv32_zfinx_extension_intrinsics.h
+@@ -0,0 +1,1086 @@
++// #################################################################################################
++// # << NEORV32 - Intrinsics + Emulation Functions for the RISC-V "Zfinx" CPU extension >>         #
++// # ********************************************************************************************* #
++// # The intrinsics provided by this library allow to use the hardware floating-point unit of the  #
++// # RISC-V Zfinx CPU extension without the need for Zfinx support by the compiler / toolchain.    #
++// # ********************************************************************************************* #
++// # BSD 3-Clause License                                                                          #
++// #                                                                                               #
++// # Copyright (c) 2024, Stephan Nolting. All rights reserved.                                     #
++// #                                                                                               #
++// # Redistribution and use in source and binary forms, with or without modification, are          #
++// # permitted provided that the following conditions are met:                                     #
++// #                                                                                               #
++// # 1. Redistributions of source code must retain the above copyright notice, this list of        #
++// #    conditions and the following disclaimer.                                                   #
++// #                                                                                               #
++// # 2. Redistributions in binary form must reproduce the above copyright notice, this list of     #
++// #    conditions and the following disclaimer in the documentation and/or other materials        #
++// #    provided with the distribution.                                                            #
++// #                                                                                               #
++// # 3. Neither the name of the copyright holder nor the names of its contributors may be used to  #
++// #    endorse or promote products derived from this software without specific prior written      #
++// #    permission.                                                                                #
++// #                                                                                               #
++// # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS   #
++// # OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF               #
++// # MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE    #
++// # COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,     #
++// # EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE #
++// # GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED    #
++// # AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING     #
++// # NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED  #
++// # OF THE POSSIBILITY OF SUCH DAMAGE.                                                            #
++// # ********************************************************************************************* #
++// # The NEORV32 Processor - https://github.com/stnolting/neorv32              (c) Stephan Nolting #
++// #################################################################################################
++
++
++/**********************************************************************//**
++ * @file floating_point_test/neorv32_zfinx_extension_intrinsics.h
++ * @author Stephan Nolting
++ *
++ * @brief "Intrinsic" library for the NEORV32 single-precision floating-point in x registers (Zfinx) extension
++ * @brief Also provides emulation functions for all intrinsics (functionality re-built in pure software). The functionality of the emulation
++ * @brief functions is based on the RISC-V floating-point spec.
++ *
++ * @note All operations from this library use the default GCC "round to nearest, ties to even" rounding mode.
++ *
++ * @warning This library is just a temporary fall-back until the Zfinx extensions are supported by the upstream RISC-V GCC port.
++ **************************************************************************/
++ 
++#ifndef neorv32_zfinx_extension_intrinsics_h
++#define neorv32_zfinx_extension_intrinsics_h
++
++#define __USE_GNU
++#define _GNU_SOURCE
++#include <float.h>
++#include <math.h>
++
++
++/**********************************************************************//**
++ * Sanity check
++ **************************************************************************/
++#if defined __riscv_f || (__riscv_flen == 32)
++  #error Application programs using the Zfinx intrinsic library have to be compiled WITHOUT the <F> MARCH ISA attribute!
++#endif
++
++
++/**********************************************************************//**
++ * Custom data type to access floating-point values as native floats and in binary representation
++ **************************************************************************/
++typedef union
++{
++  uint32_t binary_value; /**< Access as native float */
++  float    float_value;  /**< Access in binary representation */
++} float_conv_t;
++
++
++// ################################################################################################
++// Helper functions
++// ################################################################################################
++
++/**********************************************************************//**
++ * Flush to zero if de-normal number.
++ *
++ * @warning Subnormal numbers are not supported yet! Flush them to zero.
++ *
++ * @param[in] tmp Source operand.
++ * @return Result.
++ **************************************************************************/
++float subnormal_flush(float tmp) {
++
++  float res = tmp;
++
++  // flush to zero if subnormal
++  if (fpclassify(tmp) == FP_SUBNORMAL) {
++    if (signbit(tmp) != 0) {
++      res = -0.0f;
++    }
++    else {
++      res = +0.0f;
++    }
++  }
++
++  return res;
++}
++
++
++// ################################################################################################
++// "Intrinsics"
++// ################################################################################################
++
++/**********************************************************************//**
++ * Single-precision floating-point addition
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fadds(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0000000, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point subtraction
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fsubs(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0000100, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point multiplication
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fmuls(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0001000, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point minimum
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fmins(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0010100, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point maximum
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fmaxs(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0010100, opb.binary_value, opa.binary_value, 0b001, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point convert float to unsigned integer
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++inline uint32_t __attribute__ ((always_inline)) riscv_intrinsic_fcvt_wus(float rs1) {
++
++  float_conv_t opa;
++  opa.float_value = rs1;
++
++  return CUSTOM_INSTR_R2_TYPE(0b1100000, 0b00001, opa.binary_value, 0b000, 0b1010011);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point convert float to signed integer
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++inline int32_t __attribute__ ((always_inline)) riscv_intrinsic_fcvt_ws(float rs1) {
++
++  float_conv_t opa;
++  opa.float_value = rs1;
++
++  return (int32_t)CUSTOM_INSTR_R2_TYPE(0b1100000, 0b00000, opa.binary_value, 0b000, 0b1010011);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point convert unsigned integer to float
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fcvt_swu(uint32_t rs1) {
++
++  float_conv_t res;
++
++  res.binary_value = CUSTOM_INSTR_R2_TYPE(0b1101000, 0b00001, rs1, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point convert signed integer to float
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fcvt_sw(int32_t rs1) {
++
++  float_conv_t res;
++
++  res.binary_value = CUSTOM_INSTR_R2_TYPE(0b1101000, 0b00000, rs1, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point equal comparison
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline uint32_t __attribute__ ((always_inline)) riscv_intrinsic_feqs(float rs1, float rs2) {
++
++  float_conv_t opa, opb;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  return CUSTOM_INSTR_R3_TYPE(0b1010000, opb.binary_value, opa.binary_value, 0b010, 0b1010011);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point less-than comparison
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline uint32_t __attribute__ ((always_inline)) riscv_intrinsic_flts(float rs1, float rs2) {
++
++  float_conv_t opa, opb;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  return CUSTOM_INSTR_R3_TYPE(0b1010000, opb.binary_value, opa.binary_value, 0b001, 0b1010011);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point less-than-or-equal comparison
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline uint32_t __attribute__ ((always_inline)) riscv_intrinsic_fles(float rs1, float rs2) {
++
++  float_conv_t opa, opb;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  return CUSTOM_INSTR_R3_TYPE(0b1010000, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point sign-injection
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fsgnjs(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0010000, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point sign-injection NOT
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fsgnjns(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0010000, opb.binary_value, opa.binary_value, 0b001, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point sign-injection XOR
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fsgnjxs(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0010000, opb.binary_value, opa.binary_value, 0b010, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point number classification
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++inline uint32_t __attribute__ ((always_inline)) riscv_intrinsic_fclasss(float rs1) {
++
++  float_conv_t opa;
++  opa.float_value = rs1;
++
++  return CUSTOM_INSTR_R2_TYPE(0b1110000, 0b00000, opa.binary_value, 0b001, 0b1010011);
++}
++
++
++// ################################################################################################
++// !!! UNSUPPORTED instructions !!!
++// ################################################################################################
++
++/**********************************************************************//**
++ * Single-precision floating-point division
++ *
++ * @warning This instruction is not supported and should raise an illegal instruction exception when executed.
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fdivs(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0001100, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point square root
++ *
++ * @warning This instruction is not supported and should raise an illegal instruction exception when executed.
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fsqrts(float rs1) {
++
++  float_conv_t opa, res;
++  opa.float_value = rs1;
++
++  res.binary_value = CUSTOM_INSTR_R2_TYPE(0b0101100, 0b00000, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused multiply-add
++ *
++ * @warning This instruction is not supported and should raise an illegal instruction exception when executed.
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fmadds(float rs1, float rs2, float rs3) {
++
++  float_conv_t opa, opb, opc, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++  opc.float_value = rs3;
++
++  res.binary_value = CUSTOM_INSTR_R4_TYPE(opc.binary_value, opb.binary_value, opa.binary_value, 0b000, 0b1000011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused multiply-sub
++ *
++ * @warning This instruction is not supported and should raise an illegal instruction exception when executed.
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fmsubs(float rs1, float rs2, float rs3) {
++
++  float_conv_t opa, opb, opc, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++  opc.float_value = rs3;
++
++  res.binary_value = CUSTOM_INSTR_R4_TYPE(opc.binary_value, opb.binary_value, opa.binary_value, 0b000, 0b1000111);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused negated multiply-sub
++ *
++ * @warning This instruction is not supported and should raise an illegal instruction exception when executed.
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fnmsubs(float rs1, float rs2, float rs3) {
++
++  float_conv_t opa, opb, opc, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++  opc.float_value = rs3;
++
++  res.binary_value = CUSTOM_INSTR_R4_TYPE(opc.binary_value, opb.binary_value, opa.binary_value, 0b000, 0b1001011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused negated multiply-add
++ *
++ * @warning This instruction is not supported and should raise an illegal instruction exception when executed.
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fnmadds(float rs1, float rs2, float rs3) {
++
++  float_conv_t opa, opb, opc, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++  opc.float_value = rs3;
++
++  res.binary_value = CUSTOM_INSTR_R4_TYPE(opc.binary_value, opb.binary_value, opa.binary_value, 0b000, 0b1001111);
++  return res.float_value;
++}
++
++
++// ################################################################################################
++// Emulation functions
++// ################################################################################################
++
++/**********************************************************************//**
++ * Single-precision floating-point addition
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fadds(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  float res = opa + opb;
++
++  // make NAN canonical
++  if (fpclassify(res) == FP_NAN) {
++    res = NAN;
++  }
++
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point subtraction
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fsubs(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  float res = opa - opb;
++
++  // make NAN canonical
++  if (fpclassify(res) == FP_NAN) {
++    res = NAN;
++  }
++
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point multiplication
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fmuls(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  float res = opa * opb;
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point minimum
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fmins(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  union {
++  uint32_t binary_value; /**< Access as native float */
++  float    float_value;  /**< Access in binary representation */
++  } tmp_a, tmp_b;
++
++  if ((fpclassify(opa) == FP_NAN) && (fpclassify(opb) == FP_NAN)) {
++    return nanf("");
++  }
++
++  if (fpclassify(opa) == FP_NAN) {
++    return opb;
++  }
++
++  if (fpclassify(opb) == FP_NAN) {
++    return opa;
++  }
++
++  // RISC-V spec: -0 < +0
++  tmp_a.float_value = opa;
++  tmp_b.float_value = opb;
++  if (((tmp_a.binary_value == 0x80000000) && (tmp_b.binary_value == 0x00000000)) ||
++      ((tmp_a.binary_value == 0x00000000) && (tmp_b.binary_value == 0x80000000))) {
++    return -0.0f;
++  }
++
++  return fmin(opa, opb);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point maximum
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fmaxs(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  union {
++  uint32_t binary_value; /**< Access as native float */
++  float    float_value;  /**< Access in binary representation */
++  } tmp_a, tmp_b;
++
++
++  if ((fpclassify(opa) == FP_NAN) && (fpclassify(opb) == FP_NAN)) {
++    return nanf("");
++  }
++
++  if (fpclassify(opa) == FP_NAN) {
++    return opb;
++  }
++
++  if (fpclassify(opb) == FP_NAN) {
++    return opa;
++  }
++
++  // RISC-V spec: -0 < +0
++  tmp_a.float_value = opa;
++  tmp_b.float_value = opb;
++  if (((tmp_a.binary_value == 0x80000000) && (tmp_b.binary_value == 0x00000000)) ||
++      ((tmp_a.binary_value == 0x00000000) && (tmp_b.binary_value == 0x80000000))) {
++    return +0.0f;
++  }
++
++  return fmax(opa, opb);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point float to unsigned integer
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++uint32_t __attribute__ ((noinline)) riscv_emulate_fcvt_wus(float rs1) {
++
++  float opa = subnormal_flush(rs1);
++
++  return (uint32_t)rint(opa);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point float to signed integer
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++int32_t __attribute__ ((noinline)) riscv_emulate_fcvt_ws(float rs1) {
++
++  float opa = subnormal_flush(rs1);
++
++  return (int32_t)rint(opa);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point unsigned integer to float
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fcvt_swu(uint32_t rs1) {
++
++  return (float)rs1;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point signed integer to float
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fcvt_sw(int32_t rs1) {
++
++  return (float)rs1;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point equal comparison
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++uint32_t __attribute__ ((noinline)) riscv_emulate_feqs(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  if ((fpclassify(opa) == FP_NAN) || (fpclassify(opb) == FP_NAN)) {
++    return 0;
++  }
++
++  if (isless(opa, opb)) {
++    return 0;
++  }
++  else if (isgreater(opa, opb)) {
++    return 0;
++  }
++  else {
++    return 1;
++  }
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point less-than comparison
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++uint32_t __attribute__ ((noinline)) riscv_emulate_flts(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  if ((fpclassify(opa) == FP_NAN) || (fpclassify(opb) == FP_NAN)) {
++    return 0;
++  }
++
++  if (isless(opa, opb)) {
++    return 1;
++  }
++  else {
++    return 0;
++  }
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point less-than-or-equal comparison
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++uint32_t __attribute__ ((noinline)) riscv_emulate_fles(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  if ((fpclassify(opa) == FP_NAN) || (fpclassify(opb) == FP_NAN)) {
++    return 0;
++  }
++
++  if (islessequal(opa, opb)) {
++    return 1;
++  }
++  else {
++    return 0;
++  }
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point sign-injection
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fsgnjs(float rs1, float rs2) {
++
++  float opa = rs1;
++  float opb = rs2;
++
++  int sign_1 = (int)signbit(opa);
++  int sign_2 = (int)signbit(opb);
++  float res = 0;
++
++  if (sign_2 != 0) { // opb is negative
++    if (sign_1 == 0) {
++      res = -opa;
++    }
++    else {
++      res = opa;
++    }
++  }
++  else { // opb is positive
++    if (sign_1 == 0) {
++      res = opa;
++    }
++    else {
++      res = -opa;
++    }
++  }
++
++  return res;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point sign-injection NOT
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fsgnjns(float rs1, float rs2) {
++
++  float opa = rs1;
++  float opb = rs2;
++
++  int sign_1 = (int)signbit(opa);
++  int sign_2 = (int)signbit(opb);
++  float res = 0;
++
++  if (sign_2 != 0) { // opb is negative
++    if (sign_1 == 0) {
++      res = opa;
++    }
++    else {
++      res = -opa;
++    }
++  }
++  else { // opb is positive
++    if (sign_1 == 0) {
++      res = -opa;
++    }
++    else {
++      res = opa;
++    }
++  }
++
++  return res;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point sign-injection XOR
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fsgnjxs(float rs1, float rs2) {
++
++  float opa = rs1;
++  float opb = rs2;
++
++  int sign_1 = (int)signbit(opa);
++  int sign_2 = (int)signbit(opb);
++  float res = 0;
++
++  if (((sign_1 == 0) && (sign_2 != 0)) || ((sign_1 != 0) && (sign_2 == 0))) {
++    if (sign_1 == 0) {
++      res = -opa;
++    }
++    else {
++      res = opa;
++    }
++  }
++  else {
++    if (sign_1 == 0) {
++      res = opa;
++    }
++    else {
++      res = -opa;
++    }
++  }
++
++  return res;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point number classification
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++uint32_t __attribute__ ((noinline)) riscv_emulate_fclasss(float rs1) {
++
++  float opa = rs1;
++
++  union {
++    uint32_t binary_value; /**< Access as native float */
++    float    float_value;  /**< Access in binary representation */
++  } aux;
++
++  // RISC-V classify result layout
++  const uint32_t CLASS_NEG_INF    = 1 << 0; // negative infinity
++  const uint32_t CLASS_NEG_NORM   = 1 << 1; // negative normal number
++  const uint32_t CLASS_NEG_DENORM = 1 << 2; // negative subnormal number
++  const uint32_t CLASS_NEG_ZERO   = 1 << 3; // negative zero
++  const uint32_t CLASS_POS_ZERO   = 1 << 4; // positive zero
++  const uint32_t CLASS_POS_DENORM = 1 << 5; // positive subnormal number
++  const uint32_t CLASS_POS_NORM   = 1 << 6; // positive normal number
++  const uint32_t CLASS_POS_INF    = 1 << 7; // positive infinity
++  const uint32_t CLASS_SNAN       = 1 << 8; // signaling NaN (sNaN)
++  const uint32_t CLASS_QNAN       = 1 << 9; // quiet NaN (qNaN)
++
++  int tmp = fpclassify(opa);
++  int sgn = (int)signbit(opa);
++
++  uint32_t res = 0;
++
++  // infinity
++  if (tmp == FP_INFINITE) {
++    if (sgn) { res |= CLASS_NEG_INF; }
++    else     { res |= CLASS_POS_INF; }
++  }
++
++  // zero
++  if (tmp == FP_ZERO) {
++    if (sgn) { res |= CLASS_NEG_ZERO; }
++    else     { res |= CLASS_POS_ZERO; }
++  }
++
++  // normal
++  if (tmp == FP_NORMAL) {
++    if (sgn) { res |= CLASS_NEG_NORM; }
++    else     { res |= CLASS_POS_NORM; }
++  }
++
++  // subnormal
++  if (tmp == FP_SUBNORMAL) {
++    if (sgn) { res |= CLASS_NEG_DENORM; }
++    else     { res |= CLASS_POS_DENORM; }
++  }
++
++  // NaN
++  if (tmp == FP_NAN) {
++    aux.float_value = opa;
++    if ((aux.binary_value >> 22) & 0b1) { // bit 22 (mantissa's MSB) is set -> canonical (quiet) NAN
++      res |= CLASS_QNAN;
++    }
++    else {
++      res |= CLASS_SNAN;
++    }
++  }
++
++  return res;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point division
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fdivs(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  float res = opa / opb;
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point square root
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fsqrts(float rs1) {
++
++  float opa = subnormal_flush(rs1);
++
++  float res = sqrtf(opa);
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused multiply-add
++ *
++ * @warning This instruction is not supported!
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fmadds(float rs1, float rs2, float rs3) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++  float opc = subnormal_flush(rs3);
++
++  float res = (opa * opb) + opc;
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused multiply-sub
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fmsubs(float rs1, float rs2, float rs3) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++  float opc = subnormal_flush(rs3);
++
++  float res = (opa * opb) - opc;
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused negated multiply-sub
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fnmsubs(float rs1, float rs2, float rs3) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++  float opc = subnormal_flush(rs3);
++
++  float res = -(opa * opb) + opc;
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused negated multiply-add
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fnmadds(float rs1, float rs2, float rs3) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++  float opc = subnormal_flush(rs3);
++
++  float res = -(opa * opb) - opc;
++  return subnormal_flush(res);
++}
++
++
++#endif // neorv32_zfinx_extension_intrinsics_h
++ 
+diff --git a/sw/example/demo_zfinx2_cpp/taylor.hpp b/sw/example/demo_zfinx2_cpp/taylor.hpp
+new file mode 100644
+index 00000000..358457e9
+--- /dev/null
++++ b/sw/example/demo_zfinx2_cpp/taylor.hpp
+@@ -0,0 +1,37 @@
++#include <cmath>
++
++namespace Taylor {
++
++    // Inelegant implementations of Taylor Series defaulted to MacLaurin
++
++    // Sine function sin(x)
++    template<typename T>
++    T sin_series(T x, int N, T a = T(0.0f)) {
++        T result = 0.0f;
++        for (int n = 0; n < N; ++n) {
++            T term = std::pow(static_cast<float>(x - a), static_cast<float>(2 * n + 1));
++            T factorial = 1.0f;
++            for (int i = 1; i <= 2 * n + 1; ++i) {
++                factorial *= i;
++            }
++            result += (n % 2 == 0) ? term / factorial : -term / factorial;
++        }
++        return result;
++    }
++
++    // Cosine function cos(x)
++    template<typename T>
++    T cos_series(T x, int N, T a = T(0.0f)) {
++        T result = 0.0f;
++        for (int n = 0; n < N; ++n) {
++            T term = std::pow(static_cast<float>(x - a), static_cast<float>(2 * n));
++            T factorial = 1.0f;
++            for (int i = 1; i <= 2 * n; ++i) {
++                factorial *= i;
++            }
++            result += (n % 2 == 0) ? term / factorial : -term / factorial;
++        }
++        return result;
++    }
++
++} // namespace Taylor
+diff --git a/sw/example/demo_zfinx2_cpp/zfinx.hpp b/sw/example/demo_zfinx2_cpp/zfinx.hpp
+new file mode 100644
+index 00000000..f9279275
+--- /dev/null
++++ b/sw/example/demo_zfinx2_cpp/zfinx.hpp
+@@ -0,0 +1,184 @@
++#ifndef ZFINX_HPP
++#define ZFINX_HPP
++
++extern "C" {
++#include <neorv32.h>
++#include <neorv32_zfinx_extension_intrinsics.h>
++}
++
++namespace zfinx {
++
++    //- TODO: Inlined min/max functions
++
++    class Fp32 {
++    private:
++        float value = 0.0f; // Default initialize the value member
++
++    public:
++
++        // Special member functions
++        //
++        Fp32(float val = 0.0f) 
++        : value(val) 
++        {};
++
++        Fp32(int32_t val) 
++        : value(riscv_intrinsic_fcvt_sw(val))
++        {};
++        
++        Fp32(uint32_t val) 
++        : value(riscv_intrinsic_fcvt_swu(val))
++        {};
++
++        ~Fp32()                                = default; // Destructor
++        Fp32(const Fp32& other)                = default; // Copy constructor
++        Fp32(Fp32&& other) noexcept            = default; // Move constructor
++        Fp32& operator=(const Fp32& other)     = default; // Copy assignment operator
++        Fp32& operator=(Fp32&& other) noexcept = default; // Move assignment operator
++
++        // Type Conversion Operators
++        inline operator float() const /*__attribute__ ((always_inline))*/{
++            return value;
++        }
++        inline operator int32_t()  const /*__attribute__ ((always_inline))*/{
++            return riscv_intrinsic_fcvt_ws(value);
++        }
++        inline operator uint32_t() const /*__attribute__ ((always_inline))*/{
++            return riscv_intrinsic_fcvt_wus(value);
++        }
++
++        // Overload operators
++        template <typename T>
++        Fp32& operator=(T const other) /*__attribute__ ((always_inline))*/;
++        template <typename T>
++        Fp32& operator+=(T const rhs);
++        template <typename T>
++        Fp32& operator-=(T const rhs);
++        template <typename T>
++        Fp32& operator*=(T const rhs);
++        template <typename T>
++        Fp32& operator/=(T const rhs);
++
++        // Declare non-member functions as friend so they can access private members
++        //
++        template<typename T>
++        friend inline float operator+(const Fp32& lhs, const T& rhs)  /*__attribute__ ((always_inline))*/;
++        friend inline float operator-(const Fp32& lhs, const Fp32& rhs)  /*__attribute__ ((always_inline))*/;
++        friend inline Fp32  operator-(const Fp32& in)                    /*__attribute__ ((always_inline))*/;
++        friend inline float operator*(const Fp32& lhs, const Fp32& rhs)  /*__attribute__ ((always_inline))*/;
++        friend inline float operator/(const Fp32& lhs, const Fp32& rhs)  /*__attribute__ ((always_inline))*/;
++        friend inline bool  operator!(const Fp32& wrapper)               /*__attribute__ ((always_inline))*/;
++        friend inline bool  operator==(const Fp32& lhs, const Fp32& rhs) /*__attribute__ ((always_inline))*/;
++        friend inline bool  operator!=(const Fp32& lhs, const Fp32& rhs) /*__attribute__ ((always_inline))*/;
++        friend inline bool  operator<(const Fp32& lhs, const Fp32& rhs)  /*__attribute__ ((always_inline))*/;
++        friend inline bool  operator<=(const Fp32& lhs, const Fp32& rhs) /*__attribute__ ((always_inline))*/;
++        friend inline bool  operator>(const Fp32& lhs, const Fp32& rhs)  /*__attribute__ ((always_inline))*/;
++        friend inline bool  operator>=(const Fp32& lhs, const Fp32& rhs) /*__attribute__ ((always_inline))*/;
++    };
++
++    // Member operators
++    //
++    template<typename T>
++    Fp32& Fp32::operator=(T const rhs) {
++        //- TODO: Idk if this will work?
++        this->value = Fp32(static_cast<float>(rhs)).value;
++        return *this;
++    }
++    
++    template<typename T>
++    Fp32& Fp32::operator+=(T const rhs) {
++        this->value = riscv_intrinsic_fadds(this->value, rhs);
++        return *this;
++    }
++    
++    template<typename T>
++    Fp32& Fp32::operator-=(T const rhs) {
++        this->value = riscv_intrinsic_fsubs(this->value, rhs);
++        return *this;
++    }
++    
++    template<typename T>
++    Fp32& Fp32::operator*=(T const rhs) {
++        this->value = riscv_intrinsic_fmuls(this->value, rhs);
++        return *this;
++    }
++    
++    template<typename T>
++    Fp32& Fp32::operator/=(T const rhs) {
++        this->value = riscv_emulate_fdivs(this->value, rhs);
++        return *this;
++    }
++    
++
++    // Arithmetic operators
++    //
++    template <typename T>
++    /*__attribute__ ((always_inline))*/ inline float operator+(const Fp32& lhs, const T& rhs) {
++//      return riscv_intrinsic_fadds(lhs.value, rhs.value);
++        return riscv_intrinsic_fadds(lhs.value, rhs);
++    }
++
++    /*__attribute__ ((always_inline))*/ inline float operator-(const Fp32& lhs, const Fp32& rhs) {
++        return riscv_intrinsic_fsubs(lhs.value, rhs.value);
++    }
++    
++    /*__attribute__ ((always_inline))*/ inline Fp32 operator-(const Fp32& in) {
++        // TODO: Instead use the sign injection
++        return riscv_intrinsic_fmuls(in.value, -1.f);
++    }
++
++    /*__attribute__ ((always_inline))*/ inline float operator*(const Fp32& lhs, const Fp32& rhs) {
++        return riscv_intrinsic_fmuls(lhs.value, rhs.value);
++    }
++
++    /*__attribute__ ((always_inline))*/ inline float operator/(const Fp32& lhs, const Fp32& rhs) {
++
++#ifdef HYBRID_DIV
++        // WARNING: LIKELY UNSTABLE, ONLY USE FOR EVALUATION
++        //
++        // NEORV32 lacks fdivs instruction. Will therefore get reciprocal of rhs via emulated
++        // division and then use fmuls to multiply by reciprocal. Testing shows that results mostly
++        // differ from SW div by at most 1 in the mantissa field. However there are instabilities
++        // around +/- inf and values close to zero
++        return riscv_intrinsic_fmuls(lhs.value, riscv_emulate_fdivs(1.f,rhs.value));
++#else
++        // Resort to Emulated Division (likely compiler built-in)
++        return riscv_emulate_fdivs(lhs, rhs);
++#endif
++    }
++
++    // Logical operators
++    //
++    /*__attribute__ ((always_inline))*/ inline bool operator!(const Fp32& wrapper) {
++        return !wrapper.value;
++    }
++
++    // Comparison operators
++    //
++    /*__attribute__ ((always_inline))*/ inline bool operator==(const Fp32& lhs, const Fp32& rhs) {
++        return riscv_intrinsic_feqs(lhs.value, rhs.value);
++    }
++
++    /*__attribute__ ((always_inline))*/ inline bool operator!=(const Fp32& lhs, const Fp32& rhs) {
++        return !riscv_intrinsic_feqs(lhs.value, rhs.value);
++    }
++
++    /*__attribute__ ((always_inline))*/ inline bool operator<(const Fp32& lhs, const Fp32& rhs) {
++        return riscv_intrinsic_flts(lhs.value, rhs.value);
++    }
++
++    /*__attribute__ ((always_inline))*/ inline bool operator<=(const Fp32& lhs, const Fp32& rhs) {
++        return riscv_intrinsic_fles(lhs.value, rhs.value);
++    }
++
++    /*__attribute__ ((always_inline))*/ inline bool operator>(const Fp32& lhs, const Fp32& rhs) {
++        return !riscv_intrinsic_flts(lhs.value, rhs.value);
++    }
++
++    /*__attribute__ ((always_inline))*/ inline bool operator>=(const Fp32& lhs, const Fp32& rhs) {
++        return !riscv_intrinsic_fles(lhs.value, rhs.value);
++    }
++
++} // namespace zfinx
++#endif // ZFINX_HPP
++
+diff --git a/sw/example/demo_zfinx3_cpp/Makefile b/sw/example/demo_zfinx3_cpp/Makefile
+new file mode 100644
+index 00000000..8f9e2fdc
+--- /dev/null
++++ b/sw/example/demo_zfinx3_cpp/Makefile
+@@ -0,0 +1,4 @@
++# Modify this variable to fit your NEORV32 setup (neorv32 home folder)
++NEORV32_HOME ?= ../../..
++
++include $(NEORV32_HOME)/sw/common/common.mk
+diff --git a/sw/example/demo_zfinx3_cpp/gdb_commands b/sw/example/demo_zfinx3_cpp/gdb_commands
+new file mode 100644
+index 00000000..afbcc9fd
+--- /dev/null
++++ b/sw/example/demo_zfinx3_cpp/gdb_commands
+@@ -0,0 +1,6 @@
++target extended-remote localhost:3333
++file main.elf
++load
++b main:breakpoint
++c
++printf "RESULT: %f\n", result
+diff --git a/sw/example/demo_zfinx3_cpp/main.cpp b/sw/example/demo_zfinx3_cpp/main.cpp
+new file mode 100644
+index 00000000..ca93adb0
+--- /dev/null
++++ b/sw/example/demo_zfinx3_cpp/main.cpp
+@@ -0,0 +1,128 @@
++#include <charconv>
++#include <cstdint>
++#include <cstdio>
++#include <numeric>
++#include <array>
++#include <execution>
++#include <numbers>
++
++#include "zfinx.hpp"
++#include "taylor.hpp"
++
++#define BAUD_RATE          (19200)
++using Fp32 = zfinx::Fp32;
++
++// Naive printing routine because sprintf is HUGE and fcvt is deprecated
++void floatprint(float const& value, int digits = 6){
++    neorv32_uart0_printf("Received %x\n",value);
++    // Print integer portion
++    auto temp = value;
++    neorv32_uart0_printf("%d.", (int32_t) temp);
++
++    // Subtract integer portion
++    temp -= (int32_t) truncf(temp);
++
++    // Print requested digits
++    for (int i = 0; i < digits; ++i) {
++        temp *= 10;
++        neorv32_uart0_printf("%d", (int32_t) truncf(temp));
++        temp -= (int32_t) truncf(temp);
++    }
++}
++
++// Various CPU initialization routines
++int neorv_init() {
++    // setup UART at default baud rate, no interrupts
++    neorv32_uart0_setup(BAUD_RATE, 0);
++    neorv32_uart0_puts("\n\n\n\n\n\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
++    neorv32_uart0_puts("UART0 Initialized.\n");
++
++    // capture all exceptions and give debug info via UART
++    neorv32_rte_setup();
++    neorv32_uart0_puts("Run-Time Environment Initialized.\n");
++
++
++    // check if Zfinx extension is implemented at all
++    if ((neorv32_cpu_csr_read(CSR_MXISA) & (1<<CSR_MXISA_ZFINX)) == 0) {
++        neorv32_uart0_puts("Error! <Zfinx> extension not synthesized!\n");
++        return 1;
++    }
++
++    // initialize FPU hardware
++    neorv32_cpu_csr_write(CSR_FCSR, 0); // clear exception flags and set "round to nearest"
++    neorv32_uart0_puts("FPU exception flags cleared and rounding mode set\n");
++    neorv32_uart0_puts("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
++
++    return 0;
++}
++
++int main() {
++    // Initialize NEORV32 CPU for this application
++    if (neorv_init()) {
++        neorv32_uart0_puts("Unexpected error\n");
++        return 1;
++    }
++
++
++    // Define the range of x values from 0 to 2*pi
++    neorv32_uart0_puts("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
++    neorv32_uart0_puts("Integral Approximation using Taylor Expansion:\n");
++    const     Fp32 lower_bound   = 0.0f;
++    const     Fp32 upper_bound   = std::numbers::pi_v<float>;
++//  const     Fp32 upper_bound   = std::numbers::pi_v<float> / 2;
++    constexpr int  intervals     = 1500; // Number of intervals for the range
++    constexpr int  num_terms     = 8;
++    const     Fp32 interval_size = (upper_bound - lower_bound) / intervals;
++    neorv32_uart0_printf("Start:      %d\n", (int32_t) lower_bound);
++    neorv32_uart0_printf("Stop:       %d\n", (int32_t) upper_bound);
++    neorv32_uart0_printf("Step count: %d\n", (int32_t) intervals);
++    neorv32_uart0_printf("Step size:  0x%x\n", static_cast<float>(interval_size));
++
++    if (std::fpclassify((float) interval_size) == FP_SUBNORMAL) {
++        neorv32_uart0_printf("ERROR: Resulting interval size is subnormal. Cannot proceed\n");
++        return 1;
++    }
++
++    neorv32_uart0_puts("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
++    neorv32_uart0_printf("Creating Taylor Function (%d terms)...\n", num_terms);
++    // Function to compute the integral of sin(x) over an interval
++//  auto approx_function = [&](Fp32 x) { return Taylor::sin_series(x, num_terms); };
++    auto approx_function = [&](Fp32 x) { return Taylor::exp_series(x, num_terms); };
++
++    neorv32_uart0_puts("Creating range...\n");
++    // Create a range of x values
++    std::array<Fp32, intervals> x_values;
++    std::iota(std::begin(x_values), std::end(x_values), 0); // Fill with integers from 0 to intervals-1
++    std::transform(std::begin(x_values), std::end(x_values), std::begin(x_values), [&](Fp32 index) {
++        return lower_bound + index * interval_size; // Map the integers to x values
++    });
++
++    neorv32_uart0_puts("Computing integral...\n");
++    // Compute the integral over the entire range using transform_reduce
++    Fp32 total_integral = std::transform_reduce(
++        std::execution::par_unseq, // or std::execution::seq for sequential execution
++        std::begin(x_values), std::end(x_values), // Range of x values
++        Fp32(), // Initial value for the reduction
++        std::plus<>(), // Binary operation (sum)
++        approx_function // Transformation function
++    );
++
++    // Scale the result by the interval size
++    volatile float result = static_cast<float>(total_integral) * static_cast<float>(interval_size); // Attempting to get result w/ emulated floating point
++    total_integral *= interval_size;
++
++    neorv32_uart0_puts("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
++//  neorv32_uart0_printf("Integral of sin(x) from 0 to pi ≈ 0x%x\n", static_cast<float>(total_integral));
++    neorv32_uart0_printf("Integral of Taylor Series from 0 to pi ≈ 0x%x\n", static_cast<float>(total_integral));
++    neorv32_uart0_printf("Naive float-to-string conversion: ");
++    floatprint((float) total_integral);
++    neorv32_uart0_puts("\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
++
++    std::array<char, 20> buffer;
++    std::snprintf(buffer.data(), buffer.size(), "%0.6f", static_cast<float>(total_integral));
++    neorv32_uart0_printf("Result: %s\n", buffer.data());
++
++breakpoint:
++    neorv32_uart0_puts("Program Completed Successfully\n");
++    return 0;
++}
+diff --git a/sw/example/demo_zfinx3_cpp/neorv32_zfinx_extension_intrinsics.h b/sw/example/demo_zfinx3_cpp/neorv32_zfinx_extension_intrinsics.h
+new file mode 100644
+index 00000000..fed46e0a
+--- /dev/null
++++ b/sw/example/demo_zfinx3_cpp/neorv32_zfinx_extension_intrinsics.h
+@@ -0,0 +1,1086 @@
++// #################################################################################################
++// # << NEORV32 - Intrinsics + Emulation Functions for the RISC-V "Zfinx" CPU extension >>         #
++// # ********************************************************************************************* #
++// # The intrinsics provided by this library allow to use the hardware floating-point unit of the  #
++// # RISC-V Zfinx CPU extension without the need for Zfinx support by the compiler / toolchain.    #
++// # ********************************************************************************************* #
++// # BSD 3-Clause License                                                                          #
++// #                                                                                               #
++// # Copyright (c) 2024, Stephan Nolting. All rights reserved.                                     #
++// #                                                                                               #
++// # Redistribution and use in source and binary forms, with or without modification, are          #
++// # permitted provided that the following conditions are met:                                     #
++// #                                                                                               #
++// # 1. Redistributions of source code must retain the above copyright notice, this list of        #
++// #    conditions and the following disclaimer.                                                   #
++// #                                                                                               #
++// # 2. Redistributions in binary form must reproduce the above copyright notice, this list of     #
++// #    conditions and the following disclaimer in the documentation and/or other materials        #
++// #    provided with the distribution.                                                            #
++// #                                                                                               #
++// # 3. Neither the name of the copyright holder nor the names of its contributors may be used to  #
++// #    endorse or promote products derived from this software without specific prior written      #
++// #    permission.                                                                                #
++// #                                                                                               #
++// # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS   #
++// # OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF               #
++// # MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE    #
++// # COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,     #
++// # EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE #
++// # GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED    #
++// # AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING     #
++// # NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED  #
++// # OF THE POSSIBILITY OF SUCH DAMAGE.                                                            #
++// # ********************************************************************************************* #
++// # The NEORV32 Processor - https://github.com/stnolting/neorv32              (c) Stephan Nolting #
++// #################################################################################################
++
++
++/**********************************************************************//**
++ * @file floating_point_test/neorv32_zfinx_extension_intrinsics.h
++ * @author Stephan Nolting
++ *
++ * @brief "Intrinsic" library for the NEORV32 single-precision floating-point in x registers (Zfinx) extension
++ * @brief Also provides emulation functions for all intrinsics (functionality re-built in pure software). The functionality of the emulation
++ * @brief functions is based on the RISC-V floating-point spec.
++ *
++ * @note All operations from this library use the default GCC "round to nearest, ties to even" rounding mode.
++ *
++ * @warning This library is just a temporary fall-back until the Zfinx extensions are supported by the upstream RISC-V GCC port.
++ **************************************************************************/
++ 
++#ifndef neorv32_zfinx_extension_intrinsics_h
++#define neorv32_zfinx_extension_intrinsics_h
++
++#define __USE_GNU
++#define _GNU_SOURCE
++#include <float.h>
++#include <math.h>
++
++
++/**********************************************************************//**
++ * Sanity check
++ **************************************************************************/
++#if defined __riscv_f || (__riscv_flen == 32)
++  #error Application programs using the Zfinx intrinsic library have to be compiled WITHOUT the <F> MARCH ISA attribute!
++#endif
++
++
++/**********************************************************************//**
++ * Custom data type to access floating-point values as native floats and in binary representation
++ **************************************************************************/
++typedef union
++{
++  uint32_t binary_value; /**< Access as native float */
++  float    float_value;  /**< Access in binary representation */
++} float_conv_t;
++
++
++// ################################################################################################
++// Helper functions
++// ################################################################################################
++
++/**********************************************************************//**
++ * Flush to zero if de-normal number.
++ *
++ * @warning Subnormal numbers are not supported yet! Flush them to zero.
++ *
++ * @param[in] tmp Source operand.
++ * @return Result.
++ **************************************************************************/
++float subnormal_flush(float tmp) {
++
++  float res = tmp;
++
++  // flush to zero if subnormal
++  if (fpclassify(tmp) == FP_SUBNORMAL) {
++    if (signbit(tmp) != 0) {
++      res = -0.0f;
++    }
++    else {
++      res = +0.0f;
++    }
++  }
++
++  return res;
++}
++
++
++// ################################################################################################
++// "Intrinsics"
++// ################################################################################################
++
++/**********************************************************************//**
++ * Single-precision floating-point addition
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fadds(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0000000, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point subtraction
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fsubs(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0000100, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point multiplication
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fmuls(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0001000, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point minimum
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fmins(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0010100, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point maximum
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fmaxs(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0010100, opb.binary_value, opa.binary_value, 0b001, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point convert float to unsigned integer
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++inline uint32_t __attribute__ ((always_inline)) riscv_intrinsic_fcvt_wus(float rs1) {
++
++  float_conv_t opa;
++  opa.float_value = rs1;
++
++  return CUSTOM_INSTR_R2_TYPE(0b1100000, 0b00001, opa.binary_value, 0b000, 0b1010011);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point convert float to signed integer
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++inline int32_t __attribute__ ((always_inline)) riscv_intrinsic_fcvt_ws(float rs1) {
++
++  float_conv_t opa;
++  opa.float_value = rs1;
++
++  return (int32_t)CUSTOM_INSTR_R2_TYPE(0b1100000, 0b00000, opa.binary_value, 0b000, 0b1010011);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point convert unsigned integer to float
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fcvt_swu(uint32_t rs1) {
++
++  float_conv_t res;
++
++  res.binary_value = CUSTOM_INSTR_R2_TYPE(0b1101000, 0b00001, rs1, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point convert signed integer to float
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fcvt_sw(int32_t rs1) {
++
++  float_conv_t res;
++
++  res.binary_value = CUSTOM_INSTR_R2_TYPE(0b1101000, 0b00000, rs1, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point equal comparison
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline uint32_t __attribute__ ((always_inline)) riscv_intrinsic_feqs(float rs1, float rs2) {
++
++  float_conv_t opa, opb;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  return CUSTOM_INSTR_R3_TYPE(0b1010000, opb.binary_value, opa.binary_value, 0b010, 0b1010011);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point less-than comparison
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline uint32_t __attribute__ ((always_inline)) riscv_intrinsic_flts(float rs1, float rs2) {
++
++  float_conv_t opa, opb;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  return CUSTOM_INSTR_R3_TYPE(0b1010000, opb.binary_value, opa.binary_value, 0b001, 0b1010011);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point less-than-or-equal comparison
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline uint32_t __attribute__ ((always_inline)) riscv_intrinsic_fles(float rs1, float rs2) {
++
++  float_conv_t opa, opb;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  return CUSTOM_INSTR_R3_TYPE(0b1010000, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point sign-injection
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fsgnjs(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0010000, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point sign-injection NOT
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fsgnjns(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0010000, opb.binary_value, opa.binary_value, 0b001, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point sign-injection XOR
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fsgnjxs(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0010000, opb.binary_value, opa.binary_value, 0b010, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point number classification
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++inline uint32_t __attribute__ ((always_inline)) riscv_intrinsic_fclasss(float rs1) {
++
++  float_conv_t opa;
++  opa.float_value = rs1;
++
++  return CUSTOM_INSTR_R2_TYPE(0b1110000, 0b00000, opa.binary_value, 0b001, 0b1010011);
++}
++
++
++// ################################################################################################
++// !!! UNSUPPORTED instructions !!!
++// ################################################################################################
++
++/**********************************************************************//**
++ * Single-precision floating-point division
++ *
++ * @warning This instruction is not supported and should raise an illegal instruction exception when executed.
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fdivs(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0001100, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point square root
++ *
++ * @warning This instruction is not supported and should raise an illegal instruction exception when executed.
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fsqrts(float rs1) {
++
++  float_conv_t opa, res;
++  opa.float_value = rs1;
++
++  res.binary_value = CUSTOM_INSTR_R2_TYPE(0b0101100, 0b00000, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused multiply-add
++ *
++ * @warning This instruction is not supported and should raise an illegal instruction exception when executed.
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fmadds(float rs1, float rs2, float rs3) {
++
++  float_conv_t opa, opb, opc, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++  opc.float_value = rs3;
++
++  res.binary_value = CUSTOM_INSTR_R4_TYPE(opc.binary_value, opb.binary_value, opa.binary_value, 0b000, 0b1000011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused multiply-sub
++ *
++ * @warning This instruction is not supported and should raise an illegal instruction exception when executed.
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fmsubs(float rs1, float rs2, float rs3) {
++
++  float_conv_t opa, opb, opc, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++  opc.float_value = rs3;
++
++  res.binary_value = CUSTOM_INSTR_R4_TYPE(opc.binary_value, opb.binary_value, opa.binary_value, 0b000, 0b1000111);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused negated multiply-sub
++ *
++ * @warning This instruction is not supported and should raise an illegal instruction exception when executed.
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fnmsubs(float rs1, float rs2, float rs3) {
++
++  float_conv_t opa, opb, opc, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++  opc.float_value = rs3;
++
++  res.binary_value = CUSTOM_INSTR_R4_TYPE(opc.binary_value, opb.binary_value, opa.binary_value, 0b000, 0b1001011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused negated multiply-add
++ *
++ * @warning This instruction is not supported and should raise an illegal instruction exception when executed.
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fnmadds(float rs1, float rs2, float rs3) {
++
++  float_conv_t opa, opb, opc, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++  opc.float_value = rs3;
++
++  res.binary_value = CUSTOM_INSTR_R4_TYPE(opc.binary_value, opb.binary_value, opa.binary_value, 0b000, 0b1001111);
++  return res.float_value;
++}
++
++
++// ################################################################################################
++// Emulation functions
++// ################################################################################################
++
++/**********************************************************************//**
++ * Single-precision floating-point addition
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fadds(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  float res = opa + opb;
++
++  // make NAN canonical
++  if (fpclassify(res) == FP_NAN) {
++    res = NAN;
++  }
++
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point subtraction
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fsubs(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  float res = opa - opb;
++
++  // make NAN canonical
++  if (fpclassify(res) == FP_NAN) {
++    res = NAN;
++  }
++
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point multiplication
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fmuls(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  float res = opa * opb;
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point minimum
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fmins(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  union {
++  uint32_t binary_value; /**< Access as native float */
++  float    float_value;  /**< Access in binary representation */
++  } tmp_a, tmp_b;
++
++  if ((fpclassify(opa) == FP_NAN) && (fpclassify(opb) == FP_NAN)) {
++    return nanf("");
++  }
++
++  if (fpclassify(opa) == FP_NAN) {
++    return opb;
++  }
++
++  if (fpclassify(opb) == FP_NAN) {
++    return opa;
++  }
++
++  // RISC-V spec: -0 < +0
++  tmp_a.float_value = opa;
++  tmp_b.float_value = opb;
++  if (((tmp_a.binary_value == 0x80000000) && (tmp_b.binary_value == 0x00000000)) ||
++      ((tmp_a.binary_value == 0x00000000) && (tmp_b.binary_value == 0x80000000))) {
++    return -0.0f;
++  }
++
++  return fmin(opa, opb);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point maximum
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fmaxs(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  union {
++  uint32_t binary_value; /**< Access as native float */
++  float    float_value;  /**< Access in binary representation */
++  } tmp_a, tmp_b;
++
++
++  if ((fpclassify(opa) == FP_NAN) && (fpclassify(opb) == FP_NAN)) {
++    return nanf("");
++  }
++
++  if (fpclassify(opa) == FP_NAN) {
++    return opb;
++  }
++
++  if (fpclassify(opb) == FP_NAN) {
++    return opa;
++  }
++
++  // RISC-V spec: -0 < +0
++  tmp_a.float_value = opa;
++  tmp_b.float_value = opb;
++  if (((tmp_a.binary_value == 0x80000000) && (tmp_b.binary_value == 0x00000000)) ||
++      ((tmp_a.binary_value == 0x00000000) && (tmp_b.binary_value == 0x80000000))) {
++    return +0.0f;
++  }
++
++  return fmax(opa, opb);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point float to unsigned integer
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++uint32_t __attribute__ ((noinline)) riscv_emulate_fcvt_wus(float rs1) {
++
++  float opa = subnormal_flush(rs1);
++
++  return (uint32_t)rint(opa);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point float to signed integer
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++int32_t __attribute__ ((noinline)) riscv_emulate_fcvt_ws(float rs1) {
++
++  float opa = subnormal_flush(rs1);
++
++  return (int32_t)rint(opa);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point unsigned integer to float
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fcvt_swu(uint32_t rs1) {
++
++  return (float)rs1;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point signed integer to float
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fcvt_sw(int32_t rs1) {
++
++  return (float)rs1;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point equal comparison
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++uint32_t __attribute__ ((noinline)) riscv_emulate_feqs(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  if ((fpclassify(opa) == FP_NAN) || (fpclassify(opb) == FP_NAN)) {
++    return 0;
++  }
++
++  if (isless(opa, opb)) {
++    return 0;
++  }
++  else if (isgreater(opa, opb)) {
++    return 0;
++  }
++  else {
++    return 1;
++  }
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point less-than comparison
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++uint32_t __attribute__ ((noinline)) riscv_emulate_flts(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  if ((fpclassify(opa) == FP_NAN) || (fpclassify(opb) == FP_NAN)) {
++    return 0;
++  }
++
++  if (isless(opa, opb)) {
++    return 1;
++  }
++  else {
++    return 0;
++  }
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point less-than-or-equal comparison
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++uint32_t __attribute__ ((noinline)) riscv_emulate_fles(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  if ((fpclassify(opa) == FP_NAN) || (fpclassify(opb) == FP_NAN)) {
++    return 0;
++  }
++
++  if (islessequal(opa, opb)) {
++    return 1;
++  }
++  else {
++    return 0;
++  }
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point sign-injection
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fsgnjs(float rs1, float rs2) {
++
++  float opa = rs1;
++  float opb = rs2;
++
++  int sign_1 = (int)signbit(opa);
++  int sign_2 = (int)signbit(opb);
++  float res = 0;
++
++  if (sign_2 != 0) { // opb is negative
++    if (sign_1 == 0) {
++      res = -opa;
++    }
++    else {
++      res = opa;
++    }
++  }
++  else { // opb is positive
++    if (sign_1 == 0) {
++      res = opa;
++    }
++    else {
++      res = -opa;
++    }
++  }
++
++  return res;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point sign-injection NOT
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fsgnjns(float rs1, float rs2) {
++
++  float opa = rs1;
++  float opb = rs2;
++
++  int sign_1 = (int)signbit(opa);
++  int sign_2 = (int)signbit(opb);
++  float res = 0;
++
++  if (sign_2 != 0) { // opb is negative
++    if (sign_1 == 0) {
++      res = opa;
++    }
++    else {
++      res = -opa;
++    }
++  }
++  else { // opb is positive
++    if (sign_1 == 0) {
++      res = -opa;
++    }
++    else {
++      res = opa;
++    }
++  }
++
++  return res;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point sign-injection XOR
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fsgnjxs(float rs1, float rs2) {
++
++  float opa = rs1;
++  float opb = rs2;
++
++  int sign_1 = (int)signbit(opa);
++  int sign_2 = (int)signbit(opb);
++  float res = 0;
++
++  if (((sign_1 == 0) && (sign_2 != 0)) || ((sign_1 != 0) && (sign_2 == 0))) {
++    if (sign_1 == 0) {
++      res = -opa;
++    }
++    else {
++      res = opa;
++    }
++  }
++  else {
++    if (sign_1 == 0) {
++      res = opa;
++    }
++    else {
++      res = -opa;
++    }
++  }
++
++  return res;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point number classification
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++uint32_t __attribute__ ((noinline)) riscv_emulate_fclasss(float rs1) {
++
++  float opa = rs1;
++
++  union {
++    uint32_t binary_value; /**< Access as native float */
++    float    float_value;  /**< Access in binary representation */
++  } aux;
++
++  // RISC-V classify result layout
++  const uint32_t CLASS_NEG_INF    = 1 << 0; // negative infinity
++  const uint32_t CLASS_NEG_NORM   = 1 << 1; // negative normal number
++  const uint32_t CLASS_NEG_DENORM = 1 << 2; // negative subnormal number
++  const uint32_t CLASS_NEG_ZERO   = 1 << 3; // negative zero
++  const uint32_t CLASS_POS_ZERO   = 1 << 4; // positive zero
++  const uint32_t CLASS_POS_DENORM = 1 << 5; // positive subnormal number
++  const uint32_t CLASS_POS_NORM   = 1 << 6; // positive normal number
++  const uint32_t CLASS_POS_INF    = 1 << 7; // positive infinity
++  const uint32_t CLASS_SNAN       = 1 << 8; // signaling NaN (sNaN)
++  const uint32_t CLASS_QNAN       = 1 << 9; // quiet NaN (qNaN)
++
++  int tmp = fpclassify(opa);
++  int sgn = (int)signbit(opa);
++
++  uint32_t res = 0;
++
++  // infinity
++  if (tmp == FP_INFINITE) {
++    if (sgn) { res |= CLASS_NEG_INF; }
++    else     { res |= CLASS_POS_INF; }
++  }
++
++  // zero
++  if (tmp == FP_ZERO) {
++    if (sgn) { res |= CLASS_NEG_ZERO; }
++    else     { res |= CLASS_POS_ZERO; }
++  }
++
++  // normal
++  if (tmp == FP_NORMAL) {
++    if (sgn) { res |= CLASS_NEG_NORM; }
++    else     { res |= CLASS_POS_NORM; }
++  }
++
++  // subnormal
++  if (tmp == FP_SUBNORMAL) {
++    if (sgn) { res |= CLASS_NEG_DENORM; }
++    else     { res |= CLASS_POS_DENORM; }
++  }
++
++  // NaN
++  if (tmp == FP_NAN) {
++    aux.float_value = opa;
++    if ((aux.binary_value >> 22) & 0b1) { // bit 22 (mantissa's MSB) is set -> canonical (quiet) NAN
++      res |= CLASS_QNAN;
++    }
++    else {
++      res |= CLASS_SNAN;
++    }
++  }
++
++  return res;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point division
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fdivs(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  float res = opa / opb;
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point square root
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fsqrts(float rs1) {
++
++  float opa = subnormal_flush(rs1);
++
++  float res = sqrtf(opa);
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused multiply-add
++ *
++ * @warning This instruction is not supported!
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fmadds(float rs1, float rs2, float rs3) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++  float opc = subnormal_flush(rs3);
++
++  float res = (opa * opb) + opc;
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused multiply-sub
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fmsubs(float rs1, float rs2, float rs3) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++  float opc = subnormal_flush(rs3);
++
++  float res = (opa * opb) - opc;
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused negated multiply-sub
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fnmsubs(float rs1, float rs2, float rs3) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++  float opc = subnormal_flush(rs3);
++
++  float res = -(opa * opb) + opc;
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused negated multiply-add
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fnmadds(float rs1, float rs2, float rs3) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++  float opc = subnormal_flush(rs3);
++
++  float res = -(opa * opb) - opc;
++  return subnormal_flush(res);
++}
++
++
++#endif // neorv32_zfinx_extension_intrinsics_h
++ 
+diff --git a/sw/example/demo_zfinx3_cpp/taylor.hpp b/sw/example/demo_zfinx3_cpp/taylor.hpp
+new file mode 100644
+index 00000000..81716ce6
+--- /dev/null
++++ b/sw/example/demo_zfinx3_cpp/taylor.hpp
+@@ -0,0 +1,53 @@
++#include <cmath>
++
++namespace Taylor {
++
++    // Inelegant implementations of Taylor Series defaulted to MacLaurin
++
++    // Sine function sin(x)
++    template<typename T>
++    T sin_series(T x, int N, T a = T(0.0f)) {
++        T result = 0.0f;
++        for (int n = 0; n < N; ++n) {
++            T term = std::pow(static_cast<float>(x - a), static_cast<float>(2 * n + 1));
++            T factorial = 1.0f;
++            for (int i = 1; i <= 2 * n + 1; ++i) {
++                factorial *= i;
++            }
++            result += (n % 2 == 0) ? term / factorial : -term / factorial;
++        }
++        return result;
++    }
++
++    // Cosine function cos(x)
++    template<typename T>
++    T cos_series(T x, int N, T a = T(0.0f)) {
++        T result = 0.0f;
++        for (int n = 0; n < N; ++n) {
++            T term = std::pow(static_cast<float>(x - a), static_cast<float>(2 * n));
++            T factorial = 1.0f;
++            for (int i = 1; i <= 2 * n; ++i) {
++                factorial *= i;
++            }
++            result += (n % 2 == 0) ? term / factorial : -term / factorial;
++        }
++        return result;
++    }
++
++    // Exponential function e^x
++    template<typename T>
++    T exp_series(T x, int N, T a = T(0.0f)) {
++        T result    = 0.0f;
++        T power     = 1.0f;
++        T factorial = 1.0f;
++        for (int n = 0; n < N; ++n) {
++            if (n > 0) {
++                power     *= (x - a); // Iteratively calculate power
++                factorial *= n;       // Iteratively update factorial
++            }
++            result += power / factorial;
++        }
++        return result;
++    }
++
++} // namespace Taylor
+diff --git a/sw/example/demo_zfinx3_cpp/zfinx.hpp b/sw/example/demo_zfinx3_cpp/zfinx.hpp
+new file mode 100644
+index 00000000..c41655bf
+--- /dev/null
++++ b/sw/example/demo_zfinx3_cpp/zfinx.hpp
+@@ -0,0 +1,181 @@
++#ifndef ZFINX_HPP
++#define ZFINX_HPP
++
++extern "C" {
++#include <neorv32.h>
++#include <neorv32_zfinx_extension_intrinsics.h>
++}
++
++namespace zfinx {
++
++    //- TODO: Inlined min/max functions
++
++    class Fp32 {
++    private:
++        float value = 0.0f; // Default initialize the value member
++
++    public:
++
++        // Special member functions
++        //
++        Fp32(float val = 0.0f) 
++        : value(val) 
++        {};
++
++        Fp32(int32_t val) 
++        : value(riscv_intrinsic_fcvt_sw(val))
++        {};
++        
++        Fp32(uint32_t val) 
++        : value(riscv_intrinsic_fcvt_swu(val))
++        {};
++
++        ~Fp32()                                = default; // Destructor
++        Fp32(const Fp32& other)                = default; // Copy constructor
++        Fp32(Fp32&& other) noexcept            = default; // Move constructor
++        Fp32& operator=(const Fp32& other)     = default; // Copy assignment operator
++        Fp32& operator=(Fp32&& other) noexcept = default; // Move assignment operator
++
++        // Type Conversion Operators
++        inline operator float() const /*__attribute__ ((always_inline))*/{
++            return value;
++        }
++        inline operator int32_t()  const /*__attribute__ ((always_inline))*/{
++            return riscv_intrinsic_fcvt_ws(value);
++        }
++        inline operator uint32_t() const /*__attribute__ ((always_inline))*/{
++            return riscv_intrinsic_fcvt_wus(value);
++        }
++
++        // Overload operators
++        template <typename T>
++        Fp32& operator=(T const other) /*__attribute__ ((always_inline))*/;
++        template <typename T>
++        Fp32& operator+=(T const rhs);
++        template <typename T>
++        Fp32& operator-=(T const rhs);
++        template <typename T>
++        Fp32& operator*=(T const rhs);
++        template <typename T>
++        Fp32& operator/=(T const rhs);
++
++        // Declare non-member functions as friend so they can access private members
++        //
++        template<typename T>
++        friend inline float operator+(const Fp32& lhs, const T& rhs);
++        friend inline float operator-(const Fp32& lhs, const Fp32& rhs);
++        friend inline Fp32  operator-(const Fp32& in);
++        friend inline float operator*(const Fp32& lhs, const Fp32& rhs);
++        friend inline float operator/(const Fp32& lhs, const Fp32& rhs);
++        friend inline bool  operator!(const Fp32& wrapper);
++        friend inline bool  operator==(const Fp32& lhs, const Fp32& rhs);
++        friend inline bool  operator!=(const Fp32& lhs, const Fp32& rhs);
++        friend inline bool  operator<(const Fp32& lhs, const Fp32& rhs);
++        friend inline bool  operator<=(const Fp32& lhs, const Fp32& rhs);
++        friend inline bool  operator>(const Fp32& lhs, const Fp32& rhs);
++        friend inline bool  operator>=(const Fp32& lhs, const Fp32& rhs);
++    };
++
++    // Member operators
++    //
++    template<typename T>
++    Fp32& Fp32::operator=(T const rhs) {
++        this->value = Fp32(static_cast<float>(rhs)).value;
++        return *this;
++    }
++    
++    template<typename T>
++    Fp32& Fp32::operator+=(T const rhs) {
++        this->value = riscv_intrinsic_fadds(this->value, rhs);
++        return *this;
++    }
++    
++    template<typename T>
++    Fp32& Fp32::operator-=(T const rhs) {
++        this->value = riscv_intrinsic_fsubs(this->value, rhs);
++        return *this;
++    }
++    
++    template<typename T>
++    Fp32& Fp32::operator*=(T const rhs) {
++        this->value = riscv_intrinsic_fmuls(this->value, rhs);
++        return *this;
++    }
++    
++    template<typename T>
++    Fp32& Fp32::operator/=(T const rhs) {
++        this->value = riscv_emulate_fdivs(this->value, rhs);
++        return *this;
++    }
++    
++
++    // Arithmetic operators
++    //
++    template <typename T>
++    inline float operator+(const Fp32& lhs, const T& rhs) {
++        return riscv_intrinsic_fadds(lhs.value, rhs);
++    }
++
++    inline float operator-(const Fp32& lhs, const Fp32& rhs) {
++        return riscv_intrinsic_fsubs(lhs.value, rhs.value);
++    }
++    
++    inline Fp32 operator-(const Fp32& in) {
++        return riscv_intrinsic_fmuls(in.value, -1.f);
++    }
++
++    inline float operator*(const Fp32& lhs, const Fp32& rhs) {
++        return riscv_intrinsic_fmuls(lhs.value, rhs.value);
++    }
++
++    inline float operator/(const Fp32& lhs, const Fp32& rhs) {
++
++#ifdef HYBRID_DIV
++        // WARNING: LIKELY UNSTABLE, ONLY USE FOR EVALUATION
++        //
++        // NEORV32 lacks fdivs instruction. Will therefore get reciprocal of rhs via emulated
++        // division and then use fmuls to multiply by reciprocal. Testing shows that results mostly
++        // differ from SW div by at most 1 in the mantissa field. However there are instabilities
++        // around +/- inf and values close to zero
++        return riscv_intrinsic_fmuls(lhs.value, riscv_emulate_fdivs(1.f,rhs.value));
++#else
++        // Resort to Emulated Division (likely compiler built-in)
++        return riscv_emulate_fdivs(lhs, rhs);
++#endif
++    }
++
++    // Logical operators
++    //
++    inline bool operator!(const Fp32& wrapper) {
++        return !wrapper.value;
++    }
++
++    // Comparison operators
++    //
++    inline bool operator==(const Fp32& lhs, const Fp32& rhs) {
++        return riscv_intrinsic_feqs(lhs.value, rhs.value);
++    }
++
++    inline bool operator!=(const Fp32& lhs, const Fp32& rhs) {
++        return !riscv_intrinsic_feqs(lhs.value, rhs.value);
++    }
++
++    inline bool operator<(const Fp32& lhs, const Fp32& rhs) {
++        return riscv_intrinsic_flts(lhs.value, rhs.value);
++    }
++
++    inline bool operator<=(const Fp32& lhs, const Fp32& rhs) {
++        return riscv_intrinsic_fles(lhs.value, rhs.value);
++    }
++
++    inline bool operator>(const Fp32& lhs, const Fp32& rhs) {
++        return !riscv_intrinsic_flts(lhs.value, rhs.value);
++    }
++
++    inline bool operator>=(const Fp32& lhs, const Fp32& rhs) {
++        return !riscv_intrinsic_fles(lhs.value, rhs.value);
++    }
++
++} // namespace zfinx
++#endif // ZFINX_HPP
++
+diff --git a/sw/example/demo_zfinx_cpp/Makefile b/sw/example/demo_zfinx_cpp/Makefile
+new file mode 100644
+index 00000000..8f9e2fdc
+--- /dev/null
++++ b/sw/example/demo_zfinx_cpp/Makefile
+@@ -0,0 +1,4 @@
++# Modify this variable to fit your NEORV32 setup (neorv32 home folder)
++NEORV32_HOME ?= ../../..
++
++include $(NEORV32_HOME)/sw/common/common.mk
+diff --git a/sw/example/demo_zfinx_cpp/main.cpp b/sw/example/demo_zfinx_cpp/main.cpp
+new file mode 100644
+index 00000000..511552e7
+--- /dev/null
++++ b/sw/example/demo_zfinx_cpp/main.cpp
+@@ -0,0 +1,1057 @@
++// #################################################################################################
++// # << NEORV32 - RISC-V Single-Precision Floating-Point 'Zfinx' Extension Verification Program >> #
++// # ********************************************************************************************* #
++// # BSD 3-Clause License                                                                          #
++// #                                                                                               #
++// # Copyright (c) 2023, Stephan Nolting. All rights reserved.                                     #
++// #                                                                                               #
++// # Redistribution and use in source and binary forms, with or without modification, are          #
++// # permitted provided that the following conditions are met:                                     #
++// #                                                                                               #
++// # 1. Redistributions of source code must retain the above copyright notice, this list of        #
++// #    conditions and the following disclaimer.                                                   #
++// #                                                                                               #
++// # 2. Redistributions in binary form must reproduce the above copyright notice, this list of     #
++// #    conditions and the following disclaimer in the documentation and/or other materials        #
++// #    provided with the distribution.                                                            #
++// #                                                                                               #
++// # 3. Neither the name of the copyright holder nor the names of its contributors may be used to  #
++// #    endorse or promote products derived from this software without specific prior written      #
++// #    permission.                                                                                #
++// #                                                                                               #
++// # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS   #
++// # OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF               #
++// # MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE    #
++// # COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,     #
++// # EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE #
++// # GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED    #
++// # AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING     #
++// # NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED  #
++// # OF THE POSSIBILITY OF SUCH DAMAGE.                                                            #
++// # ********************************************************************************************* #
++// # The NEORV32 Processor - https://github.com/stnolting/neorv32              (c) Stephan Nolting #
++// #################################################################################################
++
++
++/**********************************************************************//**
++ * @file floating_point_test/main.c
++ * @author Stephan Nolting
++ * @brief Verification program for the NEORV32 'Zfinx' extension (floating-point in x registers) using
++ * pseudo-random data as input; compares results from hardware against pure-sw reference functions.
++ **************************************************************************/
++
++#include <neorv32.h>
++#include <float.h>
++#include <math.h>
++extern "C"{
++#include "neorv32_zfinx_extension_intrinsics.h"
++}
++
++#include "zfinx.hpp" // For zfinx::Fp32
++#include <algorithm> // For std::max
++
++#ifdef NAN
++/* NAN is supported */
++#else
++#warning NAN macro not supported!
++#endif
++#ifdef INFINITY
++/* INFINITY is supported */
++#else
++#warning INFINITY macro not supported!
++#endif
++
++
++/**********************************************************************//**
++ * @name User configuration
++ **************************************************************************/
++/**@{*/
++/** UART BAUD rate */
++#define BAUD_RATE          (19200)
++//** Number of test cases for each instruction */
++#define NUM_TEST_CASES     (100000)
++//** Silent mode (only show actual errors when != 0) */
++#define SILENT_MODE        (1)
++//** Run FPU CSR tests when != 0 */
++#define RUN_CSR_TESTS      (1)
++//** Run FPU exception tests when != 0 */
++#define RUN_EXC_TESTS      (1)
++//** Run conversion tests when != 0 */
++#define RUN_CONV_TESTS     (1)
++//** Run add/sub tests when != 0 */
++#define RUN_ADDSUB_TESTS   (1)
++//** Run multiplication tests when != 0 */
++#define RUN_MUL_TESTS      (1)
++//** Run min/max tests when != 0 */
++#define RUN_MINMAX_TESTS   (1)
++//** Run comparison tests when != 0 */
++#define RUN_COMPARE_TESTS  (1)
++//** Run sign-injection tests when != 0 */
++#define RUN_SGNINJ_TESTS   (1)
++//** Run classify tests when != 0 */
++#define RUN_CLASSIFY_TESTS (1)
++//** Run unsupported instructions tests when != 0 */
++#define RUN_UNAVAIL_TESTS  (1)
++//** Run average instruction execution time test when != 0 */
++#define RUN_TIMING_TESTS   (0)
++/**@}*/
++
++
++/**********************************************************************//**
++ * @name Special floating-point encodings
++ **************************************************************************/
++/**@{*/
++#define FLOAT32_SNAN ( (uint32_t)(0x7fa00000U) )
++#define FLOAT32_PMIN ( (uint32_t)(0x00800000U) )
++#define FLOAT32_PMAX ( (uint32_t)(0x7f7fffffU) )
++/**@}*/
++
++
++// Prototypes
++uint32_t get_test_vector(void);
++uint32_t xorshift32(void);
++uint32_t verify_result(uint32_t num, uint32_t opa, uint32_t opb, uint32_t ref, uint32_t res);
++void print_report(uint32_t num_err);
++
++
++/**********************************************************************//**
++ * Main function; test all available operations of the NEORV32 'Zfinx'
++ * extensions using floating-point  * hardware intrinsics and software-only
++ * reference functions (emulation).
++ *
++ * @note This program requires the Zfinx CPU extension.
++ *
++ * @return 0 if execution was successful
++ **************************************************************************/
++int main() {
++
++  uint32_t err_cnt = 0;
++  uint32_t err_cnt_total = 0;
++  uint32_t test_cnt = 0;
++  uint32_t i = 0;
++  float_conv_t opa;
++  float_conv_t opb;
++  float_conv_t res_hw;
++  float_conv_t res_sw;
++  zfinx::Fp32  fp32a;
++  zfinx::Fp32  fp32b;
++
++  // setup UART at default baud rate, no interrupts
++  neorv32_uart0_setup(BAUD_RATE, 0);
++
++  // capture all exceptions and give debug info via UART
++  neorv32_rte_setup();
++
++
++  // check if Zfinx extension is implemented at all
++  if ((neorv32_cpu_csr_read(CSR_MXISA) & (1<<CSR_MXISA_ZFINX)) == 0) {
++    neorv32_uart0_puts("Error! <Zfinx> extension not synthesized!\n");
++    return 1;
++  }
++
++
++// Disable compilation by default
++#ifndef RUN_CHECK
++  #warning Program HAS NOT BEEN COMPILED! Use >>make USER_FLAGS+=-DRUN_CHECK clean_all exe<< to compile it.
++
++  // inform the user if you are actually executing this
++  neorv32_uart0_printf("ERROR! Program has not been compiled. Use >>make USER_FLAGS+=-DRUN_CHECK clean_all exe<< to compile it.\n");
++
++  return 1;
++#endif
++
++  // intro
++  neorv32_uart0_printf("<<< Zfinx extension test >>>\n");
++#if (SILENT_MODE != 0)
++  neorv32_uart0_printf("SILENT_MODE enabled (only showing actual errors)\n");
++#endif
++  neorv32_uart0_printf("Test cases per instruction: %u\n", (uint32_t)NUM_TEST_CASES);
++  neorv32_uart0_printf("NOTE: The NEORV32 FPU does not support subnormal numbers yet. Subnormal numbers are flushed to zero.\n\n");
++
++
++// ----------------------------------------------------------------------------
++// CSR Read/Write Tests
++// ----------------------------------------------------------------------------
++#if (RUN_CSR_TESTS != 0)
++  neorv32_uart0_printf("\n#%u: FFLAGS CSR...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector() & 0x1F;
++    neorv32_cpu_csr_write(CSR_FFLAGS, opa.binary_value);
++    res_hw.binary_value = neorv32_cpu_csr_read(CSR_FFLAGS);
++    res_sw.binary_value = opa.binary_value;
++    err_cnt += verify_result(i, opa.binary_value, 0, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++
++  neorv32_uart0_printf("\n#%u: FRM CSR...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector() & 0x07;
++    neorv32_cpu_csr_write(CSR_FRM, opa.binary_value);
++    res_hw.binary_value = neorv32_cpu_csr_read(CSR_FRM);
++    res_sw.binary_value = opa.binary_value;
++    err_cnt += verify_result(i, opa.binary_value, 0, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++
++  neorv32_uart0_printf("\n#%u: FCSR CSR...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector() & 0xFF;
++    neorv32_cpu_csr_write(CSR_FCSR, opa.binary_value);
++    res_hw.binary_value = neorv32_cpu_csr_read(CSR_FCSR);
++    res_sw.binary_value = opa.binary_value;
++    err_cnt += verify_result(i, opa.binary_value, 0, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++#endif
++
++
++// ----------------------------------------------------------------------------
++// CSR Exception Tests
++// ----------------------------------------------------------------------------
++#if (RUN_EXC_TESTS != 0)
++  neorv32_uart0_printf("\n#%u: FFLAGS.NX (inexact)... <WORK IN PROGRESS>\n", test_cnt);
++  test_cnt++;
++
++  neorv32_uart0_printf("\n#%u: FFLAGS.DZ (divide by zero)... DIVISON NOT SUPPORTED!\n", test_cnt);
++  test_cnt++;
++
++  neorv32_uart0_printf("\n#%u: FFLAGS.UF (underflow)... <WORK IN PROGRESS>\n", test_cnt);
++  test_cnt++;
++
++  neorv32_uart0_printf("\n#%u: FFLAGS.OV (overflow)... <WORK IN PROGRESS>\n", test_cnt);
++  test_cnt++;
++
++  neorv32_uart0_printf("\n#%u: FFLAGS.NV (invalid operation)...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    neorv32_cpu_csr_write(CSR_FFLAGS, 0);
++    opa.binary_value = FLOAT32_SNAN; // signaling NAN
++    opb.binary_value = get_test_vector(); // any number
++//  res_hw.float_value = riscv_intrinsic_fadds(opa.float_value, opb.float_value); // discard result
++    res_hw.float_value = zfinx::Fp32(opa.float_value) + zfinx::Fp32(opb.float_value);
++
++    res_sw.binary_value = (uint32_t)(1 << CSR_FFLAGS_NV);
++    res_hw.binary_value = neorv32_cpu_csr_read(CSR_FFLAGS) & (1 << CSR_FFLAGS_NV);
++    err_cnt += verify_result(i, opa.binary_value, opb.binary_value, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++#endif
++
++
++// ----------------------------------------------------------------------------
++// Initialize FPU hardware
++// ----------------------------------------------------------------------------
++  neorv32_cpu_csr_write(CSR_FCSR, 0); // clear exception flags and set "round to nearest"
++
++
++// ----------------------------------------------------------------------------
++// Conversion Tests
++// ----------------------------------------------------------------------------
++
++#if (RUN_CONV_TESTS != 0)
++  neorv32_uart0_printf("\n#%u: FCVT.S.WU (unsigned integer to float)...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector();
++//  res_hw.float_value = riscv_intrinsic_fcvt_swu(opa.binary_value);
++    res_hw.float_value = zfinx::Fp32(opa.binary_value);
++    res_sw.float_value = riscv_emulate_fcvt_swu(opa.binary_value);
++    err_cnt += verify_result(i, opa.binary_value, 0, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++
++  neorv32_uart0_printf("\n#%u: FCVT.S.W (signed integer to float)...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector();
++//  res_hw.float_value = riscv_intrinsic_fcvt_sw((int32_t)opa.binary_value);
++    res_hw.float_value = zfinx::Fp32((int32_t) opa.binary_value);
++    res_sw.float_value = riscv_emulate_fcvt_sw((int32_t)opa.binary_value);
++    err_cnt += verify_result(i, opa.binary_value, 0, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++
++  neorv32_uart0_printf("\n#%u: FCVT.WU.S (float to unsigned integer)...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector();
++//  res_hw.binary_value = riscv_intrinsic_fcvt_wus(opa.float_value);
++    res_hw.binary_value = static_cast<uint32_t>(zfinx::Fp32(opa.float_value));
++    res_sw.binary_value = riscv_emulate_fcvt_wus(opa.float_value);
++    err_cnt += verify_result(i, opa.binary_value, 0, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++
++  neorv32_uart0_printf("\n#%u: FCVT.W.S (float to signed integer)...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector();
++//  res_hw.binary_value = (uint32_t)riscv_intrinsic_fcvt_ws(opa.float_value);
++    res_hw.binary_value = (uint32_t) static_cast<int32_t>(zfinx::Fp32(opa.float_value));
++    res_sw.binary_value = (uint32_t)riscv_emulate_fcvt_ws(opa.float_value);
++    err_cnt += verify_result(i, opa.binary_value, 0, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++#endif
++
++
++// ----------------------------------------------------------------------------
++// Add/Sub Tests
++// ----------------------------------------------------------------------------
++
++#if (RUN_ADDSUB_TESTS != 0)
++  neorv32_uart0_printf("\n#%u: FADD.S (addition)...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector();
++    opb.binary_value = get_test_vector();
++//  res_hw.float_value = riscv_intrinsic_fadds(opa.float_value, opb.float_value);
++    res_hw.float_value = zfinx::Fp32(opa.float_value) + zfinx::Fp32(opb.float_value);
++    res_sw.float_value = riscv_emulate_fadds(opa.float_value, opb.float_value);
++    err_cnt += verify_result(i, opa.binary_value, opb.binary_value, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++
++  neorv32_uart0_printf("\n#%u: FSUB.S (subtraction)...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector();
++    opb.binary_value = get_test_vector();
++//  res_hw.float_value = riscv_intrinsic_fsubs(opa.float_value, opb.float_value);
++    res_hw.float_value = zfinx::Fp32(opa.float_value) - zfinx::Fp32(opb.float_value);
++    res_sw.float_value = riscv_emulate_fsubs(opa.float_value, opb.float_value);
++    err_cnt += verify_result(i, opa.binary_value, opb.binary_value, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++#endif
++
++
++// ----------------------------------------------------------------------------
++// Multiplication Tests
++// ----------------------------------------------------------------------------
++
++#if (RUN_MUL_TESTS != 0)
++  neorv32_uart0_printf("\n#%u: FMUL.S (multiplication)...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector();
++    opb.binary_value = get_test_vector();
++//  res_hw.float_value = riscv_intrinsic_fmuls(opa.float_value, opb.float_value);
++    res_hw.float_value = zfinx::Fp32(opa.float_value) * zfinx::Fp32(opb.float_value);
++    res_sw.float_value = riscv_emulate_fmuls(opa.float_value, opb.float_value);
++    err_cnt += verify_result(i, opa.binary_value, opb.binary_value, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++#endif
++
++  // NOTE: No TRUE division exists, but implemented as software reciprocal plus multiplication
++  neorv32_uart0_printf("\n#%u: _PSEUDO_ FDIV.S (division as multiplication by reciprocal)...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector();
++    opb.binary_value = get_test_vector();
++    res_hw.float_value = zfinx::Fp32(opa.float_value) / zfinx::Fp32(opb.float_value);
++    res_sw.float_value = riscv_emulate_fdivs(opa.float_value, opb.float_value);
++#ifdef HYBRID_DIV
++    if (std::max(res_sw.binary_value, res_hw.binary_value) - std::min(res_sw.binary_value, res_hw.binary_value) > 1){
++      err_cnt++;
++      neorv32_uart0_printf("%u: opa = 0x%x, opb = 0x%x : ref[SW] = 0x%x vs. res[HW] = 0x%x ", i, opa.binary_value, opb.binary_value, res_sw.binary_value, res_hw.binary_value);
++      neorv32_uart0_printf("%c[1m[FAILED]%c[0m\n", 27, 27);
++    }
++#else
++    err_cnt += verify_result(i, opa.binary_value, opb.binary_value, res_sw.binary_value, res_hw.binary_value);
++#endif
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++  
++
++
++// ----------------------------------------------------------------------------
++// Min/Max Tests
++// ----------------------------------------------------------------------------
++
++#if (RUN_MINMAX_TESTS != 0)
++  neorv32_uart0_printf("\n#%u: FMIN.S (select minimum)...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector();
++    opb.binary_value = get_test_vector();
++    res_hw.float_value = riscv_intrinsic_fmins(opa.float_value, opb.float_value);
++    res_sw.float_value = riscv_emulate_fmins(opa.float_value, opb.float_value);
++    err_cnt += verify_result(i, opa.binary_value, opb.binary_value, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++
++  neorv32_uart0_printf("\n#%u: FMAX.S (select maximum)...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector();
++    opb.binary_value = get_test_vector();
++    res_hw.float_value = riscv_intrinsic_fmaxs(opa.float_value, opb.float_value);
++    res_sw.float_value = riscv_emulate_fmaxs(opa.float_value, opb.float_value);
++    err_cnt += verify_result(i, opa.binary_value, opb.binary_value, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++#endif
++
++
++// ----------------------------------------------------------------------------
++// Comparison Tests
++// ----------------------------------------------------------------------------
++
++#if (RUN_COMPARE_TESTS != 0)
++  neorv32_uart0_printf("\n#%u: FEQ.S (compare if equal)...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector();
++    opb.binary_value = get_test_vector();
++//  res_hw.binary_value = riscv_intrinsic_feqs(opa.float_value, opb.float_value);
++    res_hw.binary_value = zfinx::Fp32(opa.float_value) == zfinx::Fp32(opb.float_value);
++    res_sw.binary_value = riscv_emulate_feqs(opa.float_value, opb.float_value);
++    err_cnt += verify_result(i, opa.binary_value, opb.binary_value, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++
++  neorv32_uart0_printf("\n#%u: FLT.S (compare if less-than)...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector();
++    opb.binary_value = get_test_vector();
++//  res_hw.binary_value = riscv_intrinsic_flts(opa.float_value, opb.float_value);
++    res_hw.binary_value = zfinx::Fp32(opa.float_value) < zfinx::Fp32(opb.float_value);
++    res_sw.binary_value = riscv_emulate_flts(opa.float_value, opb.float_value);
++    err_cnt += verify_result(i, opa.binary_value, opb.binary_value, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++
++  neorv32_uart0_printf("\n#%u: FLE.S (compare if less-than-or-equal)...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector();
++    opb.binary_value = get_test_vector();
++//  res_hw.binary_value = riscv_intrinsic_fles(opa.float_value, opb.float_value);
++    res_hw.binary_value = zfinx::Fp32(opa.float_value) <= zfinx::Fp32(opb.float_value);
++    res_sw.binary_value = riscv_emulate_fles(opa.float_value, opb.float_value);
++    err_cnt += verify_result(i, opa.binary_value, opb.binary_value, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++#endif
++
++
++// ----------------------------------------------------------------------------
++// Sign-Injection Tests
++// ----------------------------------------------------------------------------
++
++#if (RUN_SGNINJ_TESTS != 0)
++  neorv32_uart0_printf("\n#%u: FSGNJ.S (sign-injection)...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector();
++    opb.binary_value = get_test_vector();
++    res_hw.float_value = riscv_intrinsic_fsgnjs(opa.float_value, opb.float_value);
++    res_sw.float_value = riscv_emulate_fsgnjs(opa.float_value, opb.float_value);
++    err_cnt += verify_result(i, opa.binary_value, opb.binary_value, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++
++  neorv32_uart0_printf("\n#%u: FSGNJN.S (sign-injection NOT)...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector();
++    opb.binary_value = get_test_vector();
++    res_hw.float_value = riscv_intrinsic_fsgnjns(opa.float_value, opb.float_value);
++    res_sw.float_value = riscv_emulate_fsgnjns(opa.float_value, opb.float_value);
++    err_cnt += verify_result(i, opa.binary_value, opb.binary_value, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++
++  neorv32_uart0_printf("\n#%u: FSGNJX.S (sign-injection XOR)...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector();
++    opb.binary_value = get_test_vector();
++    res_hw.float_value = riscv_intrinsic_fsgnjxs(opa.float_value, opb.float_value);
++    res_sw.float_value = riscv_emulate_fsgnjxs(opa.float_value, opb.float_value);
++    err_cnt += verify_result(i, opa.binary_value, opb.binary_value, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++#endif
++
++
++// ----------------------------------------------------------------------------
++// Classify Tests
++// ----------------------------------------------------------------------------
++
++#if (RUN_CLASSIFY_TESTS != 0)
++  neorv32_uart0_printf("\n#%u: FCLASS.S (classify)...\n", test_cnt);
++  err_cnt = 0;
++  for (i=0;i<(uint32_t)NUM_TEST_CASES; i++) {
++    opa.binary_value = get_test_vector();
++    res_hw.binary_value = riscv_intrinsic_fclasss(opa.float_value);
++    res_sw.binary_value = riscv_emulate_fclasss(opa.float_value);
++    err_cnt += verify_result(i, opa.binary_value, 0, res_sw.binary_value, res_hw.binary_value);
++  }
++  print_report(err_cnt);
++  err_cnt_total += err_cnt;
++  test_cnt++;
++#endif
++
++
++// ----------------------------------------------------------------------------
++// UNSUPPORTED Instructions Tests - Execution should raise illegal instruction exception
++// ----------------------------------------------------------------------------
++
++#if (RUN_UNAVAIL_TESTS != 0)
++  neorv32_uart0_printf("\n# unsupported FDIV.S (division) [illegal instruction]...\n");
++  neorv32_cpu_csr_write(CSR_MCAUSE, 0);
++  opa.binary_value = get_test_vector();
++  opb.binary_value = get_test_vector();
++  riscv_intrinsic_fdivs(opa.float_value, opb.float_value);
++  if (neorv32_cpu_csr_read(CSR_MCAUSE) != TRAP_CODE_I_ILLEGAL) {
++    neorv32_uart0_printf("%c[1m[FAILED]%c[0m\n", 27, 27);
++    err_cnt_total++;
++  }
++  else {
++    neorv32_uart0_printf("%c[1m[ok]%c[0m\n", 27, 27);
++  }
++
++  neorv32_uart0_printf("\n# unsupported FSQRT.S (square root) [illegal instruction]...\n");
++  neorv32_cpu_csr_write(CSR_MCAUSE, 0);
++  opa.binary_value = get_test_vector();
++  opb.binary_value = get_test_vector();
++  riscv_intrinsic_fsqrts(opa.float_value);
++  if (neorv32_cpu_csr_read(CSR_MCAUSE) != TRAP_CODE_I_ILLEGAL) {
++    neorv32_uart0_printf("%c[1m[FAILED]%c[0m\n", 27, 27);
++    err_cnt_total++;
++  }
++  else {
++    neorv32_uart0_printf("%c[1m[ok]%c[0m\n", 27, 27);
++  }
++
++  neorv32_uart0_printf("\n# unsupported FMADD.S (fused multiply-add) [illegal instruction]...\n");
++  neorv32_cpu_csr_write(CSR_MCAUSE, 0);
++  opa.binary_value = get_test_vector();
++  opb.binary_value = get_test_vector();
++  riscv_intrinsic_fmadds(opa.float_value, opb.float_value, -opa.float_value);
++  if (neorv32_cpu_csr_read(CSR_MCAUSE) != TRAP_CODE_I_ILLEGAL) {
++    neorv32_uart0_printf("%c[1m[FAILED]%c[0m\n", 27, 27);
++    err_cnt_total++;
++  }
++  else {
++    neorv32_uart0_printf("%c[1m[ok]%c[0m\n", 27, 27);
++  }
++
++  neorv32_uart0_printf("\n# unsupported FMSUB.S (fused multiply-sub) [illegal instruction]...\n");
++  neorv32_cpu_csr_write(CSR_MCAUSE, 0);
++  opa.binary_value = get_test_vector();
++  opb.binary_value = get_test_vector();
++  riscv_intrinsic_fmsubs(opa.float_value, opb.float_value, -opa.float_value);
++  if (neorv32_cpu_csr_read(CSR_MCAUSE) != TRAP_CODE_I_ILLEGAL) {
++    neorv32_uart0_printf("%c[1m[FAILED]%c[0m\n", 27, 27);
++    err_cnt_total++;
++  }
++  else {
++    neorv32_uart0_printf("%c[1m[ok]%c[0m\n", 27, 27);
++  }
++
++  neorv32_uart0_printf("\n# unsupported FNMSUB.S (fused negated multiply-sub) [illegal instruction]...\n");
++  neorv32_cpu_csr_write(CSR_MCAUSE, 0);
++  opa.binary_value = get_test_vector();
++  opb.binary_value = get_test_vector();
++  riscv_intrinsic_fnmadds(opa.float_value, opb.float_value, -opa.float_value);
++  if (neorv32_cpu_csr_read(CSR_MCAUSE) != TRAP_CODE_I_ILLEGAL) {
++    neorv32_uart0_printf("%c[1m[FAILED]%c[0m\n", 27, 27);
++    err_cnt_total++;
++  }
++  else {
++    neorv32_uart0_printf("%c[1m[ok]%c[0m\n", 27, 27);
++  }
++
++  neorv32_uart0_printf("\n# unsupported FNMADD.S (fused negated multiply-add) [illegal instruction]...\n");
++  neorv32_cpu_csr_write(CSR_MCAUSE, 0);
++  opa.binary_value = get_test_vector();
++  opb.binary_value = get_test_vector();
++  riscv_intrinsic_fnmadds(opa.float_value, opb.float_value, -opa.float_value);
++  if (neorv32_cpu_csr_read(CSR_MCAUSE) != TRAP_CODE_I_ILLEGAL) {
++    neorv32_uart0_printf("%c[1m[FAILED]%c[0m\n", 27, 27);
++    err_cnt_total++;
++  }
++  else {
++    neorv32_uart0_printf("%c[1m[ok]%c[0m\n", 27, 27);
++  }
++#endif
++
++
++// ----------------------------------------------------------------------------
++// Instruction execution timing test
++// ----------------------------------------------------------------------------
++
++#if (RUN_TIMING_TESTS != 0)
++
++  uint32_t time_start, time_sw, time_hw;
++  const uint32_t num_runs = 4096;
++
++  neorv32_uart0_printf("\nAverage execution time tests (%u runs)\n", num_runs);
++
++
++  // signed integer to float
++  neorv32_uart0_printf("FCVT.S.W: ");
++  time_sw = 0;
++  time_hw = 0;
++  err_cnt = 0;
++  for (i=0; i<num_runs; i++) {
++    opa.binary_value = get_test_vector();
++
++    // hardware execution time
++    time_start = neorv32_cpu_csr_read(CSR_CYCLE);
++    {
++      res_hw.float_value = riscv_intrinsic_fcvt_sw((int32_t)opa.binary_value);
++    }
++    time_hw += neorv32_cpu_csr_read(CSR_CYCLE) - time_start;
++    time_hw -= 4; // remove the 2 dummy instructions
++
++    // software (emulation) execution time
++    time_start = neorv32_cpu_csr_read(CSR_CYCLE);
++    {
++      res_sw.float_value = riscv_emulate_fcvt_sw((int32_t)opa.binary_value);
++    }
++    time_sw += neorv32_cpu_csr_read(CSR_CYCLE) - time_start;
++
++    if (res_sw.binary_value != res_hw.binary_value) {
++      err_cnt++;
++    }
++  }
++
++  if (err_cnt == 0) {
++    neorv32_uart0_printf("cycles[SW] = %u vs. cycles[HW] = %u\n", time_sw/num_runs, time_hw/num_runs);
++  }
++  else {
++    neorv32_uart0_printf("%c[1m[TEST FAILED!]%c[0m\n", 27, 27);
++    err_cnt_total++;
++  }
++
++
++  // float to signed integer
++  neorv32_uart0_printf("FCVT.W.S: ");
++  time_sw = 0;
++  time_hw = 0;
++  err_cnt = 0;
++  for (i=0; i<num_runs; i++) {
++    opa.binary_value = get_test_vector();
++
++    // hardware execution time
++    time_start = neorv32_cpu_csr_read(CSR_CYCLE);
++    {
++      res_hw.binary_value = (uint32_t)riscv_intrinsic_fcvt_ws(opa.float_value);
++    }
++    time_hw += neorv32_cpu_csr_read(CSR_CYCLE) - time_start;
++    time_hw -= 4; // remove the 2 dummy instructions
++
++    // software (emulation) execution time
++    time_start = neorv32_cpu_csr_read(CSR_CYCLE);
++    {
++      res_sw.binary_value = (uint32_t)riscv_emulate_fcvt_ws(opa.float_value);
++    }
++    time_sw += neorv32_cpu_csr_read(CSR_CYCLE) - time_start;
++
++    if (res_sw.binary_value != res_hw.binary_value) {
++      err_cnt++;
++    }
++  }
++
++  if (err_cnt == 0) {
++    neorv32_uart0_printf("cycles[SW] = %u vs. cycles[HW] = %u\n", time_sw/num_runs, time_hw/num_runs);
++  }
++  else {
++    neorv32_uart0_printf("%c[1m[TEST FAILED!]%c[0m\n", 27, 27);
++    err_cnt_total++;
++  }
++
++
++  // addition
++  neorv32_uart0_printf("FADD.S:   ");
++  time_sw = 0;
++  time_hw = 0;
++  err_cnt = 0;
++  for (i=0; i<num_runs; i++) {
++    opa.binary_value = get_test_vector();
++    opb.binary_value = get_test_vector();
++
++    // hardware execution time
++    time_start = neorv32_cpu_csr_read(CSR_CYCLE);
++    {
++      res_hw.float_value = riscv_intrinsic_fadds(opa.float_value, opb.float_value);
++    }
++    time_hw += neorv32_cpu_csr_read(CSR_CYCLE) - time_start;
++    time_hw -= 4; // remove the 2 dummy instructions
++
++    // software (emulation) execution time
++    time_start = neorv32_cpu_csr_read(CSR_CYCLE);
++    {
++      res_sw.float_value = riscv_emulate_fadds(opa.float_value, opb.float_value);
++    }
++    time_sw += neorv32_cpu_csr_read(CSR_CYCLE) - time_start;
++
++    if (res_sw.binary_value != res_hw.binary_value) {
++      err_cnt++;
++    }
++  }
++
++  if (err_cnt == 0) {
++    neorv32_uart0_printf("cycles[SW] = %u vs. cycles[HW] = %u\n", time_sw/num_runs, time_hw/num_runs);
++  }
++  else {
++    neorv32_uart0_printf("%c[1m[TEST FAILED!]%c[0m\n", 27, 27);
++    err_cnt_total++;
++  }
++
++
++  // subtraction
++  neorv32_uart0_printf("FSUB.S:   ");
++  time_sw = 0;
++  time_hw = 0;
++  err_cnt = 0;
++  for (i=0; i<num_runs; i++) {
++    opa.binary_value = get_test_vector();
++    opb.binary_value = get_test_vector();
++
++    // hardware execution time
++    time_start = neorv32_cpu_csr_read(CSR_CYCLE);
++    {
++      res_hw.float_value = riscv_intrinsic_fsubs(opa.float_value, opb.float_value);
++    }
++    time_hw += neorv32_cpu_csr_read(CSR_CYCLE) - time_start;
++    time_hw -= 4; // remove the 2 dummy instructions
++
++    // software (emulation) execution time
++    time_start = neorv32_cpu_csr_read(CSR_CYCLE);
++    {
++      res_sw.float_value = riscv_emulate_fsubs(opa.float_value, opb.float_value);
++    }
++    time_sw += neorv32_cpu_csr_read(CSR_CYCLE) - time_start;
++
++    if (res_sw.binary_value != res_hw.binary_value) {
++      err_cnt++;
++    }
++  }
++
++  if (err_cnt == 0) {
++    neorv32_uart0_printf("cycles[SW] = %u vs. cycles[HW] = %u\n", time_sw/num_runs, time_hw/num_runs);
++  }
++  else {
++    neorv32_uart0_printf("%c[1m[TEST FAILED!]%c[0m\n", 27, 27);
++    err_cnt_total++;
++  }
++
++
++  // multiplication
++  neorv32_uart0_printf("FMUL.S:   ");
++  time_sw = 0;
++  time_hw = 0;
++  err_cnt = 0;
++  for (i=0; i<num_runs; i++) {
++    opa.binary_value = get_test_vector();
++    opb.binary_value = get_test_vector();
++
++    // hardware execution time
++    time_start = neorv32_cpu_csr_read(CSR_CYCLE);
++    {
++      res_hw.float_value = riscv_intrinsic_fmuls(opa.float_value, opb.float_value);
++    }
++    time_hw += neorv32_cpu_csr_read(CSR_CYCLE) - time_start;
++    time_hw -= 4; // remove the 2 dummy instructions
++
++    // software (emulation) execution time
++    time_start = neorv32_cpu_csr_read(CSR_CYCLE);
++    {
++      res_sw.float_value = riscv_emulate_fmuls(opa.float_value, opb.float_value);
++    }
++    time_sw += neorv32_cpu_csr_read(CSR_CYCLE) - time_start;
++
++    if (res_sw.binary_value != res_hw.binary_value) {
++      err_cnt++;
++    }
++  }
++
++  if (err_cnt == 0) {
++    neorv32_uart0_printf("cycles[SW] = %u vs. cycles[HW] = %u\n", time_sw/num_runs, time_hw/num_runs);
++  }
++  else {
++    neorv32_uart0_printf("%c[1m[TEST FAILED!]%c[0m\n", 27, 27);
++    err_cnt_total++;
++  }
++
++
++  // Max
++  neorv32_uart0_printf("FMAX.S:   ");
++  time_sw = 0;
++  time_hw = 0;
++  err_cnt = 0;
++  for (i=0; i<num_runs; i++) {
++    opa.binary_value = get_test_vector();
++    opb.binary_value = get_test_vector();
++
++    // hardware execution time
++    time_start = neorv32_cpu_csr_read(CSR_CYCLE);
++    {
++      res_hw.float_value = riscv_intrinsic_fmaxs(opa.float_value, opb.float_value);
++    }
++    time_hw += neorv32_cpu_csr_read(CSR_CYCLE) - time_start;
++    time_hw -= 4; // remove the 2 dummy instructions
++
++    // software (emulation) execution time
++    time_start = neorv32_cpu_csr_read(CSR_CYCLE);
++    {
++      res_sw.float_value = riscv_emulate_fmaxs(opa.float_value, opb.float_value);
++    }
++    time_sw += neorv32_cpu_csr_read(CSR_CYCLE) - time_start;
++
++    if (res_sw.binary_value != res_hw.binary_value) {
++      err_cnt++;
++    }
++  }
++
++  if (err_cnt == 0) {
++    neorv32_uart0_printf("cycles[SW] = %u vs. cycles[HW] = %u\n", time_sw/num_runs, time_hw/num_runs);
++  }
++  else {
++    neorv32_uart0_printf("%c[1m[TEST FAILED!]%c[0m\n", 27, 27);
++    err_cnt_total++;
++  }
++
++
++  // Comparison
++  neorv32_uart0_printf("FLE.S:    ");
++  time_sw = 0;
++  time_hw = 0;
++  err_cnt = 0;
++  for (i=0; i<num_runs; i++) {
++    opa.binary_value = get_test_vector();
++    opb.binary_value = get_test_vector();
++
++    // hardware execution time
++    time_start = neorv32_cpu_csr_read(CSR_CYCLE);
++    {
++      res_hw.float_value = riscv_intrinsic_fles(opa.float_value, opb.float_value);
++    }
++    time_hw += neorv32_cpu_csr_read(CSR_CYCLE) - time_start;
++    time_hw -= 4; // remove the 2 dummy instructions
++
++    // software (emulation) execution time
++    time_start = neorv32_cpu_csr_read(CSR_CYCLE);
++    {
++      res_sw.float_value = riscv_emulate_fles(opa.float_value, opb.float_value);
++    }
++    time_sw += neorv32_cpu_csr_read(CSR_CYCLE) - time_start;
++
++    if (res_sw.binary_value != res_hw.binary_value) {
++      err_cnt++;
++    }
++  }
++
++  if (err_cnt == 0) {
++    neorv32_uart0_printf("cycles[SW] = %u vs. cycles[HW] = %u\n", time_sw/num_runs, time_hw/num_runs);
++  }
++  else {
++    neorv32_uart0_printf("%c[1m[TEST FAILED!]%c[0m\n", 27, 27);
++    err_cnt_total++;
++  }
++
++
++  // Sign-injection
++  neorv32_uart0_printf("FSGNJX.S: ");
++  time_sw = 0;
++  time_hw = 0;
++  err_cnt = 0;
++  for (i=0; i<num_runs; i++) {
++    opa.binary_value = get_test_vector();
++    opb.binary_value = get_test_vector();
++
++    // hardware execution time
++    time_start = neorv32_cpu_csr_read(CSR_CYCLE);
++    {
++      res_hw.float_value = riscv_intrinsic_fsgnjxs(opa.float_value, opb.float_value);
++    }
++    time_hw += neorv32_cpu_csr_read(CSR_CYCLE) - time_start;
++    time_hw -= 4; // remove the 2 dummy instructions
++
++    // software (emulation) execution time
++    time_start = neorv32_cpu_csr_read(CSR_CYCLE);
++    {
++      res_sw.float_value = riscv_emulate_fsgnjxs(opa.float_value, opb.float_value);
++    }
++    time_sw += neorv32_cpu_csr_read(CSR_CYCLE) - time_start;
++
++    if (res_sw.binary_value != res_hw.binary_value) {
++      err_cnt++;
++    }
++  }
++
++  if (err_cnt == 0) {
++    neorv32_uart0_printf("cycles[SW] = %u vs. cycles[HW] = %u\n", time_sw/num_runs, time_hw/num_runs);
++  }
++  else {
++    neorv32_uart0_printf("%c[1m[TEST FAILED!]%c[0m\n", 27, 27);
++    err_cnt_total++;
++  }
++#endif
++
++
++// ----------------------------------------------------------------------------
++// Final report
++// ----------------------------------------------------------------------------
++
++  if (err_cnt_total != 0) {
++    neorv32_uart0_printf("\n%c[1m[ZFINX EXTENSION VERIFICATION FAILED!]%c[0m\n", 27, 27);
++    neorv32_uart0_printf("%u errors in %u test cases\n", err_cnt_total, test_cnt*(uint32_t)NUM_TEST_CASES);
++    return 1;
++  }
++  else {
++    neorv32_uart0_printf("\n%c[1m[Zfinx extension verification successful!]%c[0m\n", 27, 27);
++    return 0;
++  }
++
++}
++
++
++/**********************************************************************//**
++ * Generate 32-bit test data (including special values like INFINITY every now and then).
++ *
++ * @return Test data (32-bit).
++ **************************************************************************/
++uint32_t get_test_vector(void) {
++
++  float_conv_t tmp;
++
++  // generate special value "every" ~256th time this function is called
++  if ((xorshift32() & 0xff) == 0xff) {
++
++    switch((xorshift32() >> 10) & 0x3) { // random decision which special value we are taking
++      case  0: tmp.float_value  = +INFINITY; break;
++      case  1: tmp.float_value  = -INFINITY; break;
++      case  2: tmp.float_value  = +0.0f; break;
++      case  3: tmp.float_value  = -0.0f; break;
++      case  4: tmp.binary_value = 0x7fffffff; break;
++      case  5: tmp.binary_value = 0xffffffff; break;
++      case  6: tmp.float_value  = NAN; break;
++      case  7: tmp.float_value  = NAN; break; // FIXME signaling_NAN?
++      default: tmp.float_value  = NAN; break;
++    }
++  }
++  else {
++    tmp.binary_value = xorshift32();
++  }
++
++  return tmp.binary_value;
++}
++
++
++/**********************************************************************//**
++ * PSEUDO-RANDOM number generator.
++ *
++ * @return Random data (32-bit).
++ **************************************************************************/
++uint32_t xorshift32(void) {
++
++//static uint32_t x32 = 314159265;
++  static uint32_t x32 = 0xfeebdaed;
++
++  x32 ^= x32 << 13;
++  x32 ^= x32 >> 17;
++  x32 ^= x32 << 5;
++
++  return x32;
++}
++
++
++/**********************************************************************//**
++ * Verify results (software reference vs. actual hardware).
++ *
++ * @param[in] num Test case number
++ * @param[in] opa Operand 1
++ * @param[in] opb Operand 2
++ * @param[in] ref Software reference
++ * @param[in] res Actual results from hardware
++ * @return zero if results are equal.
++ **************************************************************************/
++uint32_t verify_result(uint32_t num, uint32_t opa, uint32_t opb, uint32_t ref, uint32_t res) {
++
++#if (SILENT_MODE == 0)
++  neorv32_uart0_printf("%u: opa = 0x%x, opb = 0x%x : ref[SW] = 0x%x vs. res[HW] = 0x%x ", num, opa, opb, ref, res);
++#endif
++
++  if (ref != res) {
++#if (SILENT_MODE != 0)
++    neorv32_uart0_printf("%u: opa = 0x%x, opb = 0x%x : ref[SW] = 0x%x vs. res[HW] = 0x%x ", num, opa, opb, ref, res);
++#endif
++    neorv32_uart0_printf("%c[1m[FAILED]%c[0m\n", 27, 27);
++    return 1;
++  }
++  else {
++#if (SILENT_MODE == 0)
++    neorv32_uart0_printf("%c[1m[ok]%c[0m\n", 27, 27);
++#endif
++    return 0;
++  }
++}
++
++
++/**********************************************************************//**
++ * Print test report.
++ *
++ * @param[in] num_err Number or errors in this test.
++ **************************************************************************/
++void print_report(uint32_t num_err) {
++
++  neorv32_uart0_printf("Errors: %u/%u ", num_err, (uint32_t)NUM_TEST_CASES);
++
++  if (num_err == 0) {
++    neorv32_uart0_printf("%c[1m[ok]%c[0m\n", 27, 27);
++  }
++  else {
++    neorv32_uart0_printf("%c[1m[FAILED]%c[0m\n", 27, 27);
++  }
++}
+diff --git a/sw/example/demo_zfinx_cpp/neorv32_zfinx_extension_intrinsics.h b/sw/example/demo_zfinx_cpp/neorv32_zfinx_extension_intrinsics.h
+new file mode 100644
+index 00000000..fed46e0a
+--- /dev/null
++++ b/sw/example/demo_zfinx_cpp/neorv32_zfinx_extension_intrinsics.h
+@@ -0,0 +1,1086 @@
++// #################################################################################################
++// # << NEORV32 - Intrinsics + Emulation Functions for the RISC-V "Zfinx" CPU extension >>         #
++// # ********************************************************************************************* #
++// # The intrinsics provided by this library allow to use the hardware floating-point unit of the  #
++// # RISC-V Zfinx CPU extension without the need for Zfinx support by the compiler / toolchain.    #
++// # ********************************************************************************************* #
++// # BSD 3-Clause License                                                                          #
++// #                                                                                               #
++// # Copyright (c) 2024, Stephan Nolting. All rights reserved.                                     #
++// #                                                                                               #
++// # Redistribution and use in source and binary forms, with or without modification, are          #
++// # permitted provided that the following conditions are met:                                     #
++// #                                                                                               #
++// # 1. Redistributions of source code must retain the above copyright notice, this list of        #
++// #    conditions and the following disclaimer.                                                   #
++// #                                                                                               #
++// # 2. Redistributions in binary form must reproduce the above copyright notice, this list of     #
++// #    conditions and the following disclaimer in the documentation and/or other materials        #
++// #    provided with the distribution.                                                            #
++// #                                                                                               #
++// # 3. Neither the name of the copyright holder nor the names of its contributors may be used to  #
++// #    endorse or promote products derived from this software without specific prior written      #
++// #    permission.                                                                                #
++// #                                                                                               #
++// # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS   #
++// # OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF               #
++// # MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE    #
++// # COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,     #
++// # EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE #
++// # GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED    #
++// # AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING     #
++// # NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED  #
++// # OF THE POSSIBILITY OF SUCH DAMAGE.                                                            #
++// # ********************************************************************************************* #
++// # The NEORV32 Processor - https://github.com/stnolting/neorv32              (c) Stephan Nolting #
++// #################################################################################################
++
++
++/**********************************************************************//**
++ * @file floating_point_test/neorv32_zfinx_extension_intrinsics.h
++ * @author Stephan Nolting
++ *
++ * @brief "Intrinsic" library for the NEORV32 single-precision floating-point in x registers (Zfinx) extension
++ * @brief Also provides emulation functions for all intrinsics (functionality re-built in pure software). The functionality of the emulation
++ * @brief functions is based on the RISC-V floating-point spec.
++ *
++ * @note All operations from this library use the default GCC "round to nearest, ties to even" rounding mode.
++ *
++ * @warning This library is just a temporary fall-back until the Zfinx extensions are supported by the upstream RISC-V GCC port.
++ **************************************************************************/
++ 
++#ifndef neorv32_zfinx_extension_intrinsics_h
++#define neorv32_zfinx_extension_intrinsics_h
++
++#define __USE_GNU
++#define _GNU_SOURCE
++#include <float.h>
++#include <math.h>
++
++
++/**********************************************************************//**
++ * Sanity check
++ **************************************************************************/
++#if defined __riscv_f || (__riscv_flen == 32)
++  #error Application programs using the Zfinx intrinsic library have to be compiled WITHOUT the <F> MARCH ISA attribute!
++#endif
++
++
++/**********************************************************************//**
++ * Custom data type to access floating-point values as native floats and in binary representation
++ **************************************************************************/
++typedef union
++{
++  uint32_t binary_value; /**< Access as native float */
++  float    float_value;  /**< Access in binary representation */
++} float_conv_t;
++
++
++// ################################################################################################
++// Helper functions
++// ################################################################################################
++
++/**********************************************************************//**
++ * Flush to zero if de-normal number.
++ *
++ * @warning Subnormal numbers are not supported yet! Flush them to zero.
++ *
++ * @param[in] tmp Source operand.
++ * @return Result.
++ **************************************************************************/
++float subnormal_flush(float tmp) {
++
++  float res = tmp;
++
++  // flush to zero if subnormal
++  if (fpclassify(tmp) == FP_SUBNORMAL) {
++    if (signbit(tmp) != 0) {
++      res = -0.0f;
++    }
++    else {
++      res = +0.0f;
++    }
++  }
++
++  return res;
++}
++
++
++// ################################################################################################
++// "Intrinsics"
++// ################################################################################################
++
++/**********************************************************************//**
++ * Single-precision floating-point addition
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fadds(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0000000, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point subtraction
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fsubs(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0000100, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point multiplication
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fmuls(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0001000, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point minimum
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fmins(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0010100, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point maximum
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fmaxs(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0010100, opb.binary_value, opa.binary_value, 0b001, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point convert float to unsigned integer
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++inline uint32_t __attribute__ ((always_inline)) riscv_intrinsic_fcvt_wus(float rs1) {
++
++  float_conv_t opa;
++  opa.float_value = rs1;
++
++  return CUSTOM_INSTR_R2_TYPE(0b1100000, 0b00001, opa.binary_value, 0b000, 0b1010011);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point convert float to signed integer
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++inline int32_t __attribute__ ((always_inline)) riscv_intrinsic_fcvt_ws(float rs1) {
++
++  float_conv_t opa;
++  opa.float_value = rs1;
++
++  return (int32_t)CUSTOM_INSTR_R2_TYPE(0b1100000, 0b00000, opa.binary_value, 0b000, 0b1010011);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point convert unsigned integer to float
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fcvt_swu(uint32_t rs1) {
++
++  float_conv_t res;
++
++  res.binary_value = CUSTOM_INSTR_R2_TYPE(0b1101000, 0b00001, rs1, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point convert signed integer to float
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fcvt_sw(int32_t rs1) {
++
++  float_conv_t res;
++
++  res.binary_value = CUSTOM_INSTR_R2_TYPE(0b1101000, 0b00000, rs1, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point equal comparison
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline uint32_t __attribute__ ((always_inline)) riscv_intrinsic_feqs(float rs1, float rs2) {
++
++  float_conv_t opa, opb;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  return CUSTOM_INSTR_R3_TYPE(0b1010000, opb.binary_value, opa.binary_value, 0b010, 0b1010011);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point less-than comparison
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline uint32_t __attribute__ ((always_inline)) riscv_intrinsic_flts(float rs1, float rs2) {
++
++  float_conv_t opa, opb;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  return CUSTOM_INSTR_R3_TYPE(0b1010000, opb.binary_value, opa.binary_value, 0b001, 0b1010011);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point less-than-or-equal comparison
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline uint32_t __attribute__ ((always_inline)) riscv_intrinsic_fles(float rs1, float rs2) {
++
++  float_conv_t opa, opb;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  return CUSTOM_INSTR_R3_TYPE(0b1010000, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point sign-injection
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fsgnjs(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0010000, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point sign-injection NOT
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fsgnjns(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0010000, opb.binary_value, opa.binary_value, 0b001, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point sign-injection XOR
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fsgnjxs(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0010000, opb.binary_value, opa.binary_value, 0b010, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point number classification
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++inline uint32_t __attribute__ ((always_inline)) riscv_intrinsic_fclasss(float rs1) {
++
++  float_conv_t opa;
++  opa.float_value = rs1;
++
++  return CUSTOM_INSTR_R2_TYPE(0b1110000, 0b00000, opa.binary_value, 0b001, 0b1010011);
++}
++
++
++// ################################################################################################
++// !!! UNSUPPORTED instructions !!!
++// ################################################################################################
++
++/**********************************************************************//**
++ * Single-precision floating-point division
++ *
++ * @warning This instruction is not supported and should raise an illegal instruction exception when executed.
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fdivs(float rs1, float rs2) {
++
++  float_conv_t opa, opb, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++
++  res.binary_value = CUSTOM_INSTR_R3_TYPE(0b0001100, opb.binary_value, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point square root
++ *
++ * @warning This instruction is not supported and should raise an illegal instruction exception when executed.
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fsqrts(float rs1) {
++
++  float_conv_t opa, res;
++  opa.float_value = rs1;
++
++  res.binary_value = CUSTOM_INSTR_R2_TYPE(0b0101100, 0b00000, opa.binary_value, 0b000, 0b1010011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused multiply-add
++ *
++ * @warning This instruction is not supported and should raise an illegal instruction exception when executed.
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fmadds(float rs1, float rs2, float rs3) {
++
++  float_conv_t opa, opb, opc, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++  opc.float_value = rs3;
++
++  res.binary_value = CUSTOM_INSTR_R4_TYPE(opc.binary_value, opb.binary_value, opa.binary_value, 0b000, 0b1000011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused multiply-sub
++ *
++ * @warning This instruction is not supported and should raise an illegal instruction exception when executed.
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fmsubs(float rs1, float rs2, float rs3) {
++
++  float_conv_t opa, opb, opc, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++  opc.float_value = rs3;
++
++  res.binary_value = CUSTOM_INSTR_R4_TYPE(opc.binary_value, opb.binary_value, opa.binary_value, 0b000, 0b1000111);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused negated multiply-sub
++ *
++ * @warning This instruction is not supported and should raise an illegal instruction exception when executed.
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fnmsubs(float rs1, float rs2, float rs3) {
++
++  float_conv_t opa, opb, opc, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++  opc.float_value = rs3;
++
++  res.binary_value = CUSTOM_INSTR_R4_TYPE(opc.binary_value, opb.binary_value, opa.binary_value, 0b000, 0b1001011);
++  return res.float_value;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused negated multiply-add
++ *
++ * @warning This instruction is not supported and should raise an illegal instruction exception when executed.
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++inline float __attribute__ ((always_inline)) riscv_intrinsic_fnmadds(float rs1, float rs2, float rs3) {
++
++  float_conv_t opa, opb, opc, res;
++  opa.float_value = rs1;
++  opb.float_value = rs2;
++  opc.float_value = rs3;
++
++  res.binary_value = CUSTOM_INSTR_R4_TYPE(opc.binary_value, opb.binary_value, opa.binary_value, 0b000, 0b1001111);
++  return res.float_value;
++}
++
++
++// ################################################################################################
++// Emulation functions
++// ################################################################################################
++
++/**********************************************************************//**
++ * Single-precision floating-point addition
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fadds(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  float res = opa + opb;
++
++  // make NAN canonical
++  if (fpclassify(res) == FP_NAN) {
++    res = NAN;
++  }
++
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point subtraction
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fsubs(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  float res = opa - opb;
++
++  // make NAN canonical
++  if (fpclassify(res) == FP_NAN) {
++    res = NAN;
++  }
++
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point multiplication
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fmuls(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  float res = opa * opb;
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point minimum
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fmins(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  union {
++  uint32_t binary_value; /**< Access as native float */
++  float    float_value;  /**< Access in binary representation */
++  } tmp_a, tmp_b;
++
++  if ((fpclassify(opa) == FP_NAN) && (fpclassify(opb) == FP_NAN)) {
++    return nanf("");
++  }
++
++  if (fpclassify(opa) == FP_NAN) {
++    return opb;
++  }
++
++  if (fpclassify(opb) == FP_NAN) {
++    return opa;
++  }
++
++  // RISC-V spec: -0 < +0
++  tmp_a.float_value = opa;
++  tmp_b.float_value = opb;
++  if (((tmp_a.binary_value == 0x80000000) && (tmp_b.binary_value == 0x00000000)) ||
++      ((tmp_a.binary_value == 0x00000000) && (tmp_b.binary_value == 0x80000000))) {
++    return -0.0f;
++  }
++
++  return fmin(opa, opb);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point maximum
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fmaxs(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  union {
++  uint32_t binary_value; /**< Access as native float */
++  float    float_value;  /**< Access in binary representation */
++  } tmp_a, tmp_b;
++
++
++  if ((fpclassify(opa) == FP_NAN) && (fpclassify(opb) == FP_NAN)) {
++    return nanf("");
++  }
++
++  if (fpclassify(opa) == FP_NAN) {
++    return opb;
++  }
++
++  if (fpclassify(opb) == FP_NAN) {
++    return opa;
++  }
++
++  // RISC-V spec: -0 < +0
++  tmp_a.float_value = opa;
++  tmp_b.float_value = opb;
++  if (((tmp_a.binary_value == 0x80000000) && (tmp_b.binary_value == 0x00000000)) ||
++      ((tmp_a.binary_value == 0x00000000) && (tmp_b.binary_value == 0x80000000))) {
++    return +0.0f;
++  }
++
++  return fmax(opa, opb);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point float to unsigned integer
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++uint32_t __attribute__ ((noinline)) riscv_emulate_fcvt_wus(float rs1) {
++
++  float opa = subnormal_flush(rs1);
++
++  return (uint32_t)rint(opa);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point float to signed integer
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++int32_t __attribute__ ((noinline)) riscv_emulate_fcvt_ws(float rs1) {
++
++  float opa = subnormal_flush(rs1);
++
++  return (int32_t)rint(opa);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point unsigned integer to float
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fcvt_swu(uint32_t rs1) {
++
++  return (float)rs1;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point signed integer to float
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fcvt_sw(int32_t rs1) {
++
++  return (float)rs1;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point equal comparison
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++uint32_t __attribute__ ((noinline)) riscv_emulate_feqs(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  if ((fpclassify(opa) == FP_NAN) || (fpclassify(opb) == FP_NAN)) {
++    return 0;
++  }
++
++  if (isless(opa, opb)) {
++    return 0;
++  }
++  else if (isgreater(opa, opb)) {
++    return 0;
++  }
++  else {
++    return 1;
++  }
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point less-than comparison
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++uint32_t __attribute__ ((noinline)) riscv_emulate_flts(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  if ((fpclassify(opa) == FP_NAN) || (fpclassify(opb) == FP_NAN)) {
++    return 0;
++  }
++
++  if (isless(opa, opb)) {
++    return 1;
++  }
++  else {
++    return 0;
++  }
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point less-than-or-equal comparison
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++uint32_t __attribute__ ((noinline)) riscv_emulate_fles(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  if ((fpclassify(opa) == FP_NAN) || (fpclassify(opb) == FP_NAN)) {
++    return 0;
++  }
++
++  if (islessequal(opa, opb)) {
++    return 1;
++  }
++  else {
++    return 0;
++  }
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point sign-injection
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fsgnjs(float rs1, float rs2) {
++
++  float opa = rs1;
++  float opb = rs2;
++
++  int sign_1 = (int)signbit(opa);
++  int sign_2 = (int)signbit(opb);
++  float res = 0;
++
++  if (sign_2 != 0) { // opb is negative
++    if (sign_1 == 0) {
++      res = -opa;
++    }
++    else {
++      res = opa;
++    }
++  }
++  else { // opb is positive
++    if (sign_1 == 0) {
++      res = opa;
++    }
++    else {
++      res = -opa;
++    }
++  }
++
++  return res;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point sign-injection NOT
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fsgnjns(float rs1, float rs2) {
++
++  float opa = rs1;
++  float opb = rs2;
++
++  int sign_1 = (int)signbit(opa);
++  int sign_2 = (int)signbit(opb);
++  float res = 0;
++
++  if (sign_2 != 0) { // opb is negative
++    if (sign_1 == 0) {
++      res = opa;
++    }
++    else {
++      res = -opa;
++    }
++  }
++  else { // opb is positive
++    if (sign_1 == 0) {
++      res = -opa;
++    }
++    else {
++      res = opa;
++    }
++  }
++
++  return res;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point sign-injection XOR
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fsgnjxs(float rs1, float rs2) {
++
++  float opa = rs1;
++  float opb = rs2;
++
++  int sign_1 = (int)signbit(opa);
++  int sign_2 = (int)signbit(opb);
++  float res = 0;
++
++  if (((sign_1 == 0) && (sign_2 != 0)) || ((sign_1 != 0) && (sign_2 == 0))) {
++    if (sign_1 == 0) {
++      res = -opa;
++    }
++    else {
++      res = opa;
++    }
++  }
++  else {
++    if (sign_1 == 0) {
++      res = opa;
++    }
++    else {
++      res = -opa;
++    }
++  }
++
++  return res;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point number classification
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++uint32_t __attribute__ ((noinline)) riscv_emulate_fclasss(float rs1) {
++
++  float opa = rs1;
++
++  union {
++    uint32_t binary_value; /**< Access as native float */
++    float    float_value;  /**< Access in binary representation */
++  } aux;
++
++  // RISC-V classify result layout
++  const uint32_t CLASS_NEG_INF    = 1 << 0; // negative infinity
++  const uint32_t CLASS_NEG_NORM   = 1 << 1; // negative normal number
++  const uint32_t CLASS_NEG_DENORM = 1 << 2; // negative subnormal number
++  const uint32_t CLASS_NEG_ZERO   = 1 << 3; // negative zero
++  const uint32_t CLASS_POS_ZERO   = 1 << 4; // positive zero
++  const uint32_t CLASS_POS_DENORM = 1 << 5; // positive subnormal number
++  const uint32_t CLASS_POS_NORM   = 1 << 6; // positive normal number
++  const uint32_t CLASS_POS_INF    = 1 << 7; // positive infinity
++  const uint32_t CLASS_SNAN       = 1 << 8; // signaling NaN (sNaN)
++  const uint32_t CLASS_QNAN       = 1 << 9; // quiet NaN (qNaN)
++
++  int tmp = fpclassify(opa);
++  int sgn = (int)signbit(opa);
++
++  uint32_t res = 0;
++
++  // infinity
++  if (tmp == FP_INFINITE) {
++    if (sgn) { res |= CLASS_NEG_INF; }
++    else     { res |= CLASS_POS_INF; }
++  }
++
++  // zero
++  if (tmp == FP_ZERO) {
++    if (sgn) { res |= CLASS_NEG_ZERO; }
++    else     { res |= CLASS_POS_ZERO; }
++  }
++
++  // normal
++  if (tmp == FP_NORMAL) {
++    if (sgn) { res |= CLASS_NEG_NORM; }
++    else     { res |= CLASS_POS_NORM; }
++  }
++
++  // subnormal
++  if (tmp == FP_SUBNORMAL) {
++    if (sgn) { res |= CLASS_NEG_DENORM; }
++    else     { res |= CLASS_POS_DENORM; }
++  }
++
++  // NaN
++  if (tmp == FP_NAN) {
++    aux.float_value = opa;
++    if ((aux.binary_value >> 22) & 0b1) { // bit 22 (mantissa's MSB) is set -> canonical (quiet) NAN
++      res |= CLASS_QNAN;
++    }
++    else {
++      res |= CLASS_SNAN;
++    }
++  }
++
++  return res;
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point division
++ *
++ * @param[in] rs1 Source operand 1.
++ * @param[in] rs2 Source operand 2.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fdivs(float rs1, float rs2) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++
++  float res = opa / opb;
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point square root
++ *
++ * @param[in] rs1 Source operand 1.
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fsqrts(float rs1) {
++
++  float opa = subnormal_flush(rs1);
++
++  float res = sqrtf(opa);
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused multiply-add
++ *
++ * @warning This instruction is not supported!
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fmadds(float rs1, float rs2, float rs3) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++  float opc = subnormal_flush(rs3);
++
++  float res = (opa * opb) + opc;
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused multiply-sub
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fmsubs(float rs1, float rs2, float rs3) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++  float opc = subnormal_flush(rs3);
++
++  float res = (opa * opb) - opc;
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused negated multiply-sub
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fnmsubs(float rs1, float rs2, float rs3) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++  float opc = subnormal_flush(rs3);
++
++  float res = -(opa * opb) + opc;
++  return subnormal_flush(res);
++}
++
++
++/**********************************************************************//**
++ * Single-precision floating-point fused negated multiply-add
++ *
++ * @param[in] rs1 Source operand 1
++ * @param[in] rs2 Source operand 2
++ * @param[in] rs3 Source operand 3
++ * @return Result.
++ **************************************************************************/
++float __attribute__ ((noinline)) riscv_emulate_fnmadds(float rs1, float rs2, float rs3) {
++
++  float opa = subnormal_flush(rs1);
++  float opb = subnormal_flush(rs2);
++  float opc = subnormal_flush(rs3);
++
++  float res = -(opa * opb) - opc;
++  return subnormal_flush(res);
++}
++
++
++#endif // neorv32_zfinx_extension_intrinsics_h
++ 
+diff --git a/sw/example/demo_zfinx_cpp/newton_raphson_recip_example b/sw/example/demo_zfinx_cpp/newton_raphson_recip_example
+new file mode 100644
+index 00000000..cec9d0e9
+--- /dev/null
++++ b/sw/example/demo_zfinx_cpp/newton_raphson_recip_example
+@@ -0,0 +1,43 @@
++#include <iostream>
++#include <cstdint>
++#include <bit>
++#include <cstdlib>
++#include <ctime>
++
++// NOTE: Compile with -std=c++20
++
++// https://stackoverflow.com/questions/12227126/division-as-multiply-and-lut-fast-float-division-reciprocal
++__inline__ float __attribute__((const)) reciprocal( float f ) {
++    auto u = std::bit_cast<uint32_t>( f );
++    u = 0x7EEEEBB3 - u;
++    auto recip = std::bit_cast<float>( u );
++    recip = recip * ( 2 - recip * f );
++    recip = recip * ( 2 - recip * f );
++    recip = recip * ( 2 - recip * f );
++    return recip;
++}
++
++int main(){
++    std::srand(static_cast<unsigned int>(std::time(nullptr)));
++
++    float a, b;
++    a = 123.123456;
++    b = a;
++
++    a = 1 / a;
++    b = reciprocal(b);
++
++    std::cout << "Reciprocal: " << a << "\n";
++    std::cout << "Estimation: " << b << "\n";
++
++    a = static_cast<float>(std::rand());
++    b = a;
++
++    a = 1 / a;
++    b = reciprocal(b);
++
++    std::cout << "Reciprocal: " << a << "\n";
++    std::cout << "Estimation: " << b << "\n";
++
++    return 0;
++}
+diff --git a/sw/example/demo_zfinx_cpp/zfinx.hpp b/sw/example/demo_zfinx_cpp/zfinx.hpp
+new file mode 100644
+index 00000000..a444871f
+--- /dev/null
++++ b/sw/example/demo_zfinx_cpp/zfinx.hpp
+@@ -0,0 +1,134 @@
++#ifndef ZFINX_HPP
++#define ZFINX_HPP
++
++extern "C" {
++#include <neorv32_zfinx_extension_intrinsics.h>
++}
++
++namespace zfinx {
++
++    //- TODO: Inlined min/max functions
++
++    class Fp32 {
++    private:
++        float value = 0.0f; // Default initialize the value member
++
++    public:
++
++        // Special member functions
++        //
++        Fp32(float val = 0.0f) 
++        : value(val) 
++        {};
++
++        Fp32(int32_t val) 
++        : value(riscv_intrinsic_fcvt_sw(val))
++        {};
++        
++        Fp32(uint32_t val) 
++        : value(riscv_intrinsic_fcvt_swu(val))
++        {};
++
++        ~Fp32()                                = default; // Destructor
++        Fp32(const Fp32& other)                = default; // Copy constructor
++        Fp32(Fp32&& other) noexcept            = default; // Move constructor
++        Fp32& operator=(const Fp32& other)     = default; // Copy assignment operator
++        Fp32& operator=(Fp32&& other) noexcept = default; // Move assignment operator
++
++        // Type Conversion Operators
++        inline operator float() const __attribute__ ((always_inline)){
++            return value;
++        }
++        inline operator int32_t()  const __attribute__ ((always_inline)){
++            return riscv_intrinsic_fcvt_ws(value);
++        }
++        inline operator uint32_t() const __attribute__ ((always_inline)){
++            return riscv_intrinsic_fcvt_wus(value);
++        }
++
++        // Overload assignment operators
++        //
++        Fp32& operator=(const float        other) __attribute__ ((always_inline));
++        Fp32& operator=(const int          other) __attribute__ ((always_inline));
++        Fp32& operator=(const unsigned int other) __attribute__ ((always_inline));
++
++        // Declare non-member functions as friend so they can access private members
++        //
++        friend inline float operator+(const Fp32& lhs, const Fp32& rhs)  __attribute__ ((always_inline));
++        friend inline float operator-(const Fp32& lhs, const Fp32& rhs)  __attribute__ ((always_inline));
++        friend inline float operator*(const Fp32& lhs, const Fp32& rhs)  __attribute__ ((always_inline));
++        friend inline float operator/(const Fp32& lhs, const Fp32& rhs)  __attribute__ ((always_inline));
++        friend inline bool  operator!(const Fp32& wrapper)               __attribute__ ((always_inline));
++        friend inline bool  operator==(const Fp32& lhs, const Fp32& rhs) __attribute__ ((always_inline));
++        friend inline bool  operator!=(const Fp32& lhs, const Fp32& rhs) __attribute__ ((always_inline));
++        friend inline bool  operator<(const Fp32& lhs, const Fp32& rhs)  __attribute__ ((always_inline));
++        friend inline bool  operator<=(const Fp32& lhs, const Fp32& rhs) __attribute__ ((always_inline));
++        friend inline bool  operator>(const Fp32& lhs, const Fp32& rhs)  __attribute__ ((always_inline));
++        friend inline bool  operator>=(const Fp32& lhs, const Fp32& rhs) __attribute__ ((always_inline));
++    };
++
++    // Arithmetic operators
++    //
++    __attribute__ ((always_inline)) inline float operator+(const Fp32& lhs, const Fp32& rhs) {
++        return riscv_intrinsic_fadds(lhs.value, rhs.value);
++    }
++
++    __attribute__ ((always_inline)) inline float operator-(const Fp32& lhs, const Fp32& rhs) {
++        return riscv_intrinsic_fsubs(lhs.value, rhs.value);
++    }
++
++    __attribute__ ((always_inline)) inline float operator*(const Fp32& lhs, const Fp32& rhs) {
++        return riscv_intrinsic_fmuls(lhs.value, rhs.value);
++    }
++
++    __attribute__ ((always_inline)) inline float operator/(const Fp32& lhs, const Fp32& rhs) {
++
++#ifdef HYBRID_DIV
++        // WARNING: LIKELY UNSTABLE, ONLY USE FOR EVALUATION
++        //
++        // NEORV32 lacks fdivs instruction. Will therefore get reciprocal of rhs via emulated
++        // division and then use fmuls to multiply by reciprocal. Testing shows that results mostly
++        // differ from SW div by at most 1 in the mantissa field. However there are instabilities
++        // around +/- inf and values close to zero
++        return riscv_intrinsic_fmuls(lhs.value, riscv_emulate_fdivs(1.f,rhs.value));
++#else
++        // Resort to Emulated Division (likely compiler built-in)
++        return riscv_emulate_fdivs(lhs, rhs);
++#endif
++    }
++
++    // Logical operators
++    //
++    __attribute__ ((always_inline)) inline bool operator!(const Fp32& wrapper) {
++        return !wrapper.value;
++    }
++
++    // Comparison operators
++    //
++    __attribute__ ((always_inline)) inline bool operator==(const Fp32& lhs, const Fp32& rhs) {
++        return riscv_intrinsic_feqs(lhs.value, rhs.value);
++    }
++
++    __attribute__ ((always_inline)) inline bool operator!=(const Fp32& lhs, const Fp32& rhs) {
++        return !riscv_intrinsic_feqs(lhs.value, rhs.value);
++    }
++
++    __attribute__ ((always_inline)) inline bool operator<(const Fp32& lhs, const Fp32& rhs) {
++        return riscv_intrinsic_flts(lhs.value, rhs.value);
++    }
++
++    __attribute__ ((always_inline)) inline bool operator<=(const Fp32& lhs, const Fp32& rhs) {
++        return riscv_intrinsic_fles(lhs.value, rhs.value);
++    }
++
++    __attribute__ ((always_inline)) inline bool operator>(const Fp32& lhs, const Fp32& rhs) {
++        return !riscv_intrinsic_flts(lhs.value, rhs.value);
++    }
++
++    __attribute__ ((always_inline)) inline bool operator>=(const Fp32& lhs, const Fp32& rhs) {
++        return !riscv_intrinsic_fles(lhs.value, rhs.value);
++    }
++
++} // namespace zfinx
++#endif // ZFINX_HPP
++
+diff --git a/sw/example/hello_cpp/gdb_commands b/sw/example/hello_cpp/gdb_commands
+new file mode 100644
+index 00000000..0565f75c
+--- /dev/null
++++ b/sw/example/hello_cpp/gdb_commands
+@@ -0,0 +1,4 @@
++target extended-remote localhost:3333
++file main.elf
++load
++c
+diff --git a/sw/openocd/openocd_neorv32.cfg b/sw/openocd/openocd_neorv32.cfg
+index 4c202902..72cd74ed 100644
+--- a/sw/openocd/openocd_neorv32.cfg
++++ b/sw/openocd/openocd_neorv32.cfg
+@@ -13,10 +13,14 @@
+ # TRST: D4 (low-active, optional - pull input pin high if not used)
+ 
+ adapter driver ftdi
++adapter usb location 1-8
+ ftdi vid_pid 0x0403 0x6010
+-ftdi channel 0
+-ftdi layout_init 0x0038 0x003b
++# ftdi channel 0
++ftdi channel 1
++# ftdi layout_init 0x0038 0x003b
++ftdi layout_init 0x0078 0x017b
+ ftdi layout_signal nTRST -ndata 0x0010 -noe 0x0040
++ftdi layout_signal nSRST -ndata 0x0020 -noe 0x0040
+ 
+ adapter speed 4000
+ transport select jtag
+@@ -30,11 +34,15 @@ set _TARGETNAME $_CHIPNAME.cpu
+ target create $_TARGETNAME.0 riscv -chain-position $_TARGETNAME
+ 
+ # expose NEORV32-specific CSRs
+-riscv expose_csrs 2048=cfureg0
+-riscv expose_csrs 2049=cfureg1
+-riscv expose_csrs 2050=cfureg2
+-riscv expose_csrs 2051=cfureg3
+-riscv expose_csrs 4032=mxisa
++# CARRERAS NOTE: CUSTOM NAMES NOT SUPPORTED IN 0.11.0
++# https://github.com/openocd-org/openocd/blob/v0.11.0/src/target/riscv/riscv.c#L2574-L2580
++# riscv expose_csrs 2048=cfureg0
++# riscv expose_csrs 2049=cfureg1
++# riscv expose_csrs 2050=cfureg2
++# riscv expose_csrs 2051=cfureg3
++# riscv expose_csrs 4032=mxisa
++riscv expose_csrs 2048-2051
++riscv expose_csrs 4032
+ 
+ # enable memory access error reports
+ gdb_report_data_abort enable
+-- 
+2.34.1
+
